@@ -1,0 +1,93 @@
+# ===============================
+# Python / Django
+# ===============================
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# Django stuff
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+media/
+staticfiles/
+
+# Migrations (optional – uncomment if you don't want to track them)
+# */migrations/
+# */migrations/*.py
+# !*/migrations/__init__.py
+
+# ===============================
+# Environment variables
+# ===============================
+.env
+.env.*
+!.env.example
+
+# ===============================
+# Strawberry / GraphQL
+# ===============================
+# Schema dumps or generated files (if any)
+schema.graphql
+schema.json
+
+# Strawberry / GraphQL cache
+.strawberry/
+.graphql/
+
+# ===============================
+# Testing / Coverage
+# ===============================
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+.tox/
+.nox/
+
+# ===============================
+# Build / Packaging
+# ===============================
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# ===============================
+# IDEs / Editors
+# ===============================
+.vscode/
+.idea/
+*.iml
+
+# ===============================
+# OS Files
+# ===============================
+.DS_Store
+Thumbs.db
+
+# ===============================
+# Logs & Temp
+# ===============================
+*.log
+*.tmp
+*.swp
+
+# ===============================
+# Celery / Redis (if used)
+# ===============================
+celerybeat-schedule
+celerybeat.pid
+
+# ===============================
+# Docker (optional)
+# ===============================
+docker-compose.override.yml
