@@ -7,8 +7,6 @@ from core.models import (
     Section,
     Role,
     User,
-    StudentProfile,
-    ParentProfile,
 )
 
 
@@ -59,21 +57,3 @@ class UserType:
     is_active: bool
     role: RoleType
     department: Optional[DepartmentType]
-
-
-@strawberry.type
-class StudentProfileType:
-    id: int
-    register_number: str
-    department: DepartmentType
-    course: CourseType
-    section: SectionType
-    phone_number: Optional[str]
-
-
-@strawberry.type
-class ParentProfileType:
-    id: int
-    relationship: str
-    phone_number: str
-    student: StudentProfileType

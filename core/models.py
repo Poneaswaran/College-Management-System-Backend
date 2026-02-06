@@ -102,6 +102,20 @@ class UserManager(BaseUserManager):
         if not extra_fields.get("email"):
             raise ValueError("Superuser must have an email")
 
+        # Assign ADMIN role if no role is provided
+        if 'role' not in extra_fields:
+            try:
+                admin_role = self.model._meta.get_field('role').related_model.objects.get(
+                    code='ADMIN', 
+                    is_global=True
+                )
+                extra_fields['role'] = admin_role
+            except self.model._meta.get_field('role').related_model.DoesNotExist:
+                raise ValueError(
+                    "ADMIN role not found. Please run migrations first: "
+                    "python manage.py migrate"
+                )
+
         return self.create_user(password=password, **extra_fields)
 
 
@@ -139,60 +153,3 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     def __str__(self):
         return self.email or self.register_number
-
-
-# ==================================================
-# STUDENT PROFILE
-# ==================================================
-
-class StudentProfile(models.Model):
-    user = models.OneToOneField(
-        User,
-        on_delete=models.CASCADE,
-        related_name="student_profile"
-    )
-
-    register_number = models.CharField(max_length=20, unique=True)
-
-    department = models.ForeignKey(
-        Department,
-        on_delete=models.PROTECT
-    )
-    course = models.ForeignKey(
-        Course,
-        on_delete=models.PROTECT
-    )
-    section = models.ForeignKey(
-        Section,
-        on_delete=models.PROTECT
-    )
-
-    date_of_birth = models.DateField(null=True, blank=True)
-    phone_number = models.CharField(max_length=15, null=True, blank=True)
-
-    def __str__(self):
-        return self.register_number
-
-
-# ==================================================
-# PARENT / GUARDIAN PROFILE
-# ==================================================
-
-class ParentProfile(models.Model):
-    user = models.OneToOneField(
-        User,
-        on_delete=models.CASCADE,
-        related_name="parent_profile"
-    )
-
-    student = models.ForeignKey(
-        StudentProfile,
-        on_delete=models.CASCADE,
-        related_name="parents"
-    )
-
-    relationship = models.CharField(max_length=50)  # Father, Mother, Guardian
-    phone_number = models.CharField(max_length=15)
-
-    def __str__(self):
-        return f"{self.user} -> {self.student.register_number}"

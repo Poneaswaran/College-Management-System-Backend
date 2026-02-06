@@ -7,7 +7,6 @@ from core.models import (
     Section,
     Role,
     User,
-    StudentProfile,
 )
 
 from .types import (
@@ -16,7 +15,6 @@ from .types import (
     SectionType,
     RoleType,
     UserType,
-    StudentProfileType,
 )
 
 
@@ -81,24 +79,3 @@ class Query:
     @strawberry.field
     def users(self) -> List[UserType]:
         return User.objects.select_related("role", "department")
-
-    # ==================================================
-    # STUDENT
-    # ==================================================
-    @strawberry.field
-    def student_by_register_number(
-        self,
-        register_number: str
-    ) -> Optional[StudentProfileType]:
-        return (
-            StudentProfile.objects
-            .select_related(
-                "department",
-                "course",
-                "section",
-                "section__course",
-                "section__course__department"
-            )
-            .filter(register_number=register_number)
-            .first()
-        )

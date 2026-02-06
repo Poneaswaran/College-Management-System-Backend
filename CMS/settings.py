@@ -25,7 +25,7 @@ SECRET_KEY = 'django-insecure-3e((r7@i5fb(sj6fi4mw=f4*dazntggt+ov=ldh0q0_#(i$!7a
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ["192.168.1.132","192.168.2.232"]
 
 
 # Application definition
@@ -37,12 +37,15 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    "strawberry_django",
+    'corsheaders',
+    "strawberry.django",
     "core",
+    "profile_management",
 ]
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -118,3 +121,27 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = 'static/'
+
+# Media files (uploads)
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
+
+# Default primary key field type
+DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+
+# JWT Configuration
+JWT_SECRET_KEY = SECRET_KEY  # Or use a separate secret
+JWT_ALGORITHM = 'HS256'
+JWT_ACCESS_TOKEN_LIFETIME = 24 * 60 * 60  # 24 hours in seconds
+JWT_REFRESH_TOKEN_LIFETIME = 7 * 24 * 60 * 60  # 7 days in seconds
+
+# CORS
+CORS_ALLOWED_ORIGINS = [
+    "http://192.168.1.132:5174",
+    "http://localhost:5174",
+]
+
+# If your frontend needs cookies/auth credentials, enable this:
+# CORS_ALLOW_CREDENTIALS = True
+APPEND_SLASH = False
