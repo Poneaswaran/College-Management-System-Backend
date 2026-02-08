@@ -1,8 +1,9 @@
 # Django Framework
-Django==6.0.2
+Django==5.0.2
 
 # GraphQL
-strawberry-graphql[django]==0.215.1
+strawberry-graphql[django]==0.288.0
+strawberry-graphql-django==0.74.2
 
 # JWT Authentication
 PyJWT==2.8.0
