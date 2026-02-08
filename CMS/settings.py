@@ -25,7 +25,7 @@ SECRET_KEY = 'django-insecure-3e((r7@i5fb(sj6fi4mw=f4*dazntggt+ov=ldh0q0_#(i$!7a
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ["192.168.1.132","192.168.2.232"]
+ALLOWED_HOSTS = ["192.168.1.132","192.168.2.232","26.109.141.42"]
 
 
 # Application definition
@@ -41,6 +41,7 @@ INSTALLED_APPS = [
     "strawberry.django",
     "core",
     "profile_management",
+    "timetable",
 ]
 
 MIDDLEWARE = [
@@ -139,6 +140,8 @@ JWT_REFRESH_TOKEN_LIFETIME = 7 * 24 * 60 * 60  # 7 days in seconds
 # CORS
 CORS_ALLOWED_ORIGINS = [
     "http://192.168.1.132:5174",
+    "http://26.109.141.42:8000",
+    "http://26.195.175.71:5174",
     "http://localhost:5174",
 ]
 

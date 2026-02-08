@@ -1,6 +1,91 @@
 from django.db import models
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from core.models import Department, Course, Section
+
+
+# ==================================================
+# ACADEMIC YEAR & SEMESTER
+# ==================================================
+
+class AcademicYear(models.Model):
+    """
+    Track academic sessions like '2024-25', '2025-26'
+    Only one academic year can be current at a time
+    """
+    year_code = models.CharField(max_length=20, unique=True, help_text="e.g., '2024-25'")
+    start_date = models.DateField()
+    end_date = models.DateField()
+    is_current = models.BooleanField(default=False, help_text="Only one academic year can be current")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-start_date']
+        verbose_name = "Academic Year"
+        verbose_name_plural = "Academic Years"
+
+    def __str__(self):
+        return self.year_code
+
+    def clean(self):
+        """Validate that start_date is before end_date"""
+        if self.start_date and self.end_date and self.start_date >= self.end_date:
+            raise ValidationError("Start date must be before end date")
+
+    def save(self, *args, **kwargs):
+        """Ensure only one academic year is current at a time"""
+        if self.is_current:
+            # Set all other academic years to not current
+            AcademicYear.objects.filter(is_current=True).update(is_current=False)
+        super().save(*args, **kwargs)
+
+
+class Semester(models.Model):
+    """
+    Represent Odd (1) or Even (2) semester within an academic year
+    Only one semester can be current at a time
+    """
+    SEMESTER_CHOICES = [
+        (1, 'Odd Semester'),
+        (2, 'Even Semester'),
+    ]
+
+    academic_year = models.ForeignKey(
+        AcademicYear,
+        on_delete=models.CASCADE,
+        related_name="semesters"
+    )
+    number = models.PositiveIntegerField(
+        choices=SEMESTER_CHOICES,
+        help_text="1 = Odd Semester, 2 = Even Semester"
+    )
+    start_date = models.DateField()
+    end_date = models.DateField()
+    is_current = models.BooleanField(default=False, help_text="Only one semester can be current")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('academic_year', 'number')
+        ordering = ['-academic_year__start_date', 'number']
+        verbose_name = "Semester"
+        verbose_name_plural = "Semesters"
+
+    def __str__(self):
+        return f"{self.academic_year.year_code} - {self.get_number_display()}"
+
+    def clean(self):
+        """Validate that start_date is before end_date"""
+        if self.start_date and self.end_date and self.start_date >= self.end_date:
+            raise ValidationError("Start date must be before end date")
+
+    def save(self, *args, **kwargs):
+        """Ensure only one semester is current at a time"""
+        if self.is_current:
+            # Set all other semesters to not current
+            Semester.objects.filter(is_current=True).update(is_current=False)
+        super().save(*args, **kwargs)
 
 
 # ==================================================

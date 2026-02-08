@@ -1,7 +1,24 @@
 from django.contrib import admin
-from .models import StudentProfile, ParentProfile
-from .models import ParentLoginOTP
+from .models import StudentProfile, ParentProfile, ParentLoginOTP, AcademicYear, Semester
 
+
+@admin.register(AcademicYear)
+class AcademicYearAdmin(admin.ModelAdmin):
+    list_display = ['year_code', 'start_date', 'end_date', 'is_current', 'created_at']
+    list_filter = ['is_current']
+    search_fields = ['year_code']
+    readonly_fields = ['created_at', 'updated_at']
+    ordering = ['-start_date']
+
+
+@admin.register(Semester)
+class SemesterAdmin(admin.ModelAdmin):
+    list_display = ['__str__', 'number', 'start_date', 'end_date', 'is_current', 'created_at']
+    list_filter = ['is_current', 'number', 'academic_year']
+    search_fields = ['academic_year__year_code']
+    readonly_fields = ['created_at', 'updated_at']
+    ordering = ['-academic_year__start_date', 'number']
+    
 
 @admin.register(StudentProfile)
 class StudentProfileAdmin(admin.ModelAdmin):

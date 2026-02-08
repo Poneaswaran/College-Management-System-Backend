@@ -4,20 +4,22 @@ from .queries import Query as CoreQuery
 from .mutations import Mutation as CoreMutation
 from profile_management.graphql.queries import ProfileQuery
 from profile_management.graphql.mutations import ProfileMutation
+from timetable.graphql.queries import TimetableQuery
+from timetable.graphql.mutations import TimetableMutation
 
 # ==================================================
 # MERGED SCHEMA
 # ==================================================
 
-# Merge queries from core and profile_management apps
+# Merge queries from core, profile_management, and timetable apps
 @strawberry.type
-class Query(CoreQuery, ProfileQuery):
+class Query(CoreQuery, ProfileQuery, TimetableQuery):
     pass
 
 
-# Merge mutations from core and profile_management apps
+# Merge mutations from core, profile_management, and timetable apps
 @strawberry.type
-class Mutation(CoreMutation, ProfileMutation):
+class Mutation(CoreMutation, ProfileMutation, TimetableMutation):
     pass
 
 
