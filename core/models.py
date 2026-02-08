@@ -153,3 +153,54 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     def __str__(self):
         return self.email or self.register_number
+
+
+# ==================================================
+# TOKEN BLACKLIST (for logout functionality)
+# ==================================================
+
+class TokenBlacklist(models.Model):
+    """
+    Store invalidated JWT tokens (for logout functionality)
+    Tokens in this table are considered logged out
+    """
+    token = models.CharField(max_length=500, unique=True, db_index=True)
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="blacklisted_tokens",
+        null=True,
+        blank=True
+    )
+    blacklisted_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()  # Token expiry time
+    reason = models.CharField(
+        max_length=50,
+        default='logout',
+        choices=[
+            ('logout', 'User Logout'),
+            ('forced', 'Forced Logout'),
+            ('security', 'Security Reason'),
+        ]
+    )
+
+    class Meta:
+        ordering = ['-blacklisted_at']
+        indexes = [
+            models.Index(fields=['token']),
+            models.Index(fields=['expires_at']),
+        ]
+
+    def __str__(self):
+        return f"Blacklisted token for {self.user} at {self.blacklisted_at}"
+
+    @classmethod
+    def is_blacklisted(cls, token):
+        """Check if a token is blacklisted"""
+        return cls.objects.filter(token=token).exists()
+
+    @classmethod
+    def cleanup_expired(cls):
+        """Remove expired tokens from blacklist (run periodically)"""
+        from django.utils import timezone
+        return cls.objects.filter(expires_at__lt=timezone.now()).delete()

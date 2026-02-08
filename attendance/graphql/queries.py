@@ -329,9 +329,9 @@ class AttendanceQuery:
         attendances = StudentAttendance.objects.filter(
             session=session
         ).select_related(
-            'student__user',
+            'student',
             'marked_by'
-        ).order_by('student__user__first_name')
+        ).order_by('student__first_name')
         
         return list(attendances)
     
