@@ -144,3 +144,29 @@ class ParentProfile(models.Model):
 
     def __str__(self):
         return f"{self.relationship} of {self.student.register_number}"
+
+
+# ==================================================
+# PARENT LOGIN OTP (temporary codes for parent auth)
+# ==================================================
+
+class ParentLoginOTP(models.Model):
+    student = models.ForeignKey(
+        StudentProfile,
+        on_delete=models.CASCADE,
+        related_name='parent_otps'
+    )
+    code = models.CharField(max_length=10)
+    contact = models.CharField(max_length=255, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    used = models.BooleanField(default=False)
+    attempts = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['student', 'code']),
+        ]
+
+    def __str__(self):
+        return f"OTP for {self.student.register_number} -> {self.code} ({'used' if self.used else 'active'})"

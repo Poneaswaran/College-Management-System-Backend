@@ -1,5 +1,6 @@
 from django.contrib import admin
 from .models import StudentProfile, ParentProfile
+from .models import ParentLoginOTP
 
 
 @admin.register(StudentProfile)
@@ -33,3 +34,10 @@ class ParentProfileAdmin(admin.ModelAdmin):
     list_display = ['user', 'student', 'relationship', 'phone_number']
     list_filter = ['relationship']
     search_fields = ['user__email', 'student__register_number', 'phone_number']
+
+
+@admin.register(ParentLoginOTP)
+class ParentLoginOTPAdmin(admin.ModelAdmin):
+    list_display = ['student', 'code', 'contact', 'created_at', 'expires_at', 'used', 'attempts']
+    list_filter = ['used']
+    search_fields = ['student__register_number', 'code', 'contact']

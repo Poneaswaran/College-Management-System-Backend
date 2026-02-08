@@ -143,5 +143,5 @@ CORS_ALLOWED_ORIGINS = [
 ]
 
 # If your frontend needs cookies/auth credentials, enable this:
-# CORS_ALLOW_CREDENTIALS = True
+# CORS_ALLOW_CREDENTIALS = True  
 APPEND_SLASH = False
