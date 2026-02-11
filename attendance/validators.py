@@ -112,7 +112,7 @@ class AttendanceValidator:
         
         # Check if student belongs to the section
         section = session.timetable_entry.section
-        if not section.students.filter(id=student_profile.id).exists():
+        if not section.student_profiles.filter(id=student_profile.id).exists():
             return False, "You are not enrolled in this section"
         
         # Check if attendance already marked

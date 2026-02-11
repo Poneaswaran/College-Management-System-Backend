@@ -65,11 +65,17 @@ class AttendanceSessionType:
     @strawberry.field
     def faculty_name(self) -> str:
         """Get faculty name"""
-        return self.timetable_entry.faculty.user.get_full_name()
+        return self.timetable_entry.faculty.email or self.timetable_entry.faculty.register_number or "Unknown"
     
     @strawberry.field
     def period_info(self) -> str:
         """Get period information"""
+        pd = self.timetable_entry.period_definition
+        return f"Period {pd.period_number} ({pd.start_time.strftime('%H:%M')} - {pd.end_time.strftime('%H:%M')})"
+    
+    @strawberry.field
+    def period_time(self) -> str:
+        """Get period time (alias for period_info)"""
         pd = self.timetable_entry.period_definition
         return f"Period {pd.period_number} ({pd.start_time.strftime('%H:%M')} - {pd.end_time.strftime('%H:%M')})"
     
@@ -257,7 +263,7 @@ from timetable.graphql.types import SubjectType, SemesterType
 @strawberry.input
 class MarkAttendanceInput:
     """Input for marking attendance"""
-    session_id: int
+    session_id: strawberry.ID
     image_data: str  # Base64 encoded image
     latitude: Optional[float] = None
     longitude: Optional[float] = None
@@ -286,3 +292,21 @@ class ManualMarkAttendanceInput:
     student_id: int
     status: str  # PRESENT, ABSENT, LATE
     notes: Optional[str] = None
+
+
+# Response Types
+@strawberry.type
+class MarkAttendanceResponse:
+    """Response for mark attendance mutation"""
+    attendance: StudentAttendanceType
+    message: str
+    success: bool = True
+
+
+# Response Types
+@strawberry.type
+class MarkAttendanceResponse:
+    """Response for mark attendance mutation"""
+    attendance: StudentAttendanceType
+    message: str
+    success: bool = True

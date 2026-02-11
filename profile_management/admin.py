@@ -26,6 +26,7 @@ class StudentProfileAdmin(admin.ModelAdmin):
     list_filter = ['department', 'course', 'year', 'semester', 'academic_status', 'gender']
     search_fields = ['register_number', 'first_name', 'last_name', 'phone', 'user__email']
     readonly_fields = ['created_at', 'updated_at']
+    autocomplete_fields = ['user']
     
     fieldsets = (
         ('Personal Information', {

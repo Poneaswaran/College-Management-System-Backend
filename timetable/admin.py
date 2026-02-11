@@ -62,7 +62,7 @@ class SubjectAdmin(admin.ModelAdmin):
         'subject_type',
         'is_active'
     ]
-    search_fields = ['code', 'name']
+    search_fields = ['code', 'name', 'department__name']
     ordering = ['department', 'semester_number', 'code']
     readonly_fields = ['created_at', 'updated_at']
     fieldsets = (
@@ -93,7 +93,7 @@ class PeriodDefinitionAdmin(admin.ModelAdmin):
         'duration_minutes'
     ]
     list_filter = ['semester', 'day_of_week']
-    search_fields = ['semester__academic_year__year_code']
+    search_fields = ['semester__academic_year__year_code', 'day_of_week', 'period_number']
     ordering = ['semester', 'day_of_week', 'period_number']
     fieldsets = (
         ('Semester & Day', {
@@ -164,7 +164,7 @@ class TimetableEntryAdmin(admin.ModelAdmin):
         'faculty__email',
         'faculty__register_number'
     ]
-    raw_id_fields = [
+    autocomplete_fields = [
         'section',
         'subject',
         'faculty',
