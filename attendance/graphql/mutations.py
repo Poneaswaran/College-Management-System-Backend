@@ -6,6 +6,7 @@ from typing import Optional
 from datetime import date
 from django.utils import timezone
 from django.core.files.base import ContentFile
+from decimal import Decimal, ROUND_HALF_UP
 import base64
 
 from attendance.models import AttendanceSession, StudentAttendance, AttendanceReport
@@ -21,6 +22,18 @@ from attendance.graphql.types import (
     ManualMarkAttendanceInput,
     MarkAttendanceResponse
 )
+
+
+def convert_to_decimal(value, decimal_places=6):
+    """
+    Helper function to convert float to Decimal with proper precision
+    Ensures the value has exactly the specified number of decimal places
+    """
+    if value is None:
+        return None
+    # Convert to Decimal and quantize to the specified decimal places
+    quantize_value = Decimal('0.1') ** decimal_places
+    return Decimal(str(value)).quantize(quantize_value, rounding=ROUND_HALF_UP)
 
 
 @strawberry.type
@@ -142,8 +155,8 @@ class AttendanceMutation:
                 'status': 'PRESENT',
                 'attendance_image': image_data,
                 'marked_at': timezone.now(),
-                'latitude': input.latitude,
-                'longitude': input.longitude,
+                'latitude': convert_to_decimal(input.latitude),
+                'longitude': convert_to_decimal(input.longitude),
                 'device_info': input.device_info or {},
                 'is_manually_marked': False
             }

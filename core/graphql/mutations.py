@@ -7,7 +7,7 @@ from django.db.models import Q
 from datetime import datetime, timedelta
 
 from .types import UserType
-from core.models import TokenBlacklist
+from core.models import TokenBlacklist, Role, Department
 
 User = get_user_model()
 
@@ -20,6 +20,17 @@ User = get_user_model()
 class LoginInput:
     username: str  # email OR register number
     password: str
+
+
+@strawberry.input
+class CreateUserInput:
+    email: Optional[str] = None
+    register_number: Optional[str] = None
+    password: str
+    role_id: int
+    department_id: Optional[int] = None
+    is_active: bool = True
+    is_staff: bool = False
 
 
 # ==================================================
@@ -38,6 +49,13 @@ class LoginResponse:
 class LogoutResponse:
     success: bool
     message: str
+
+
+@strawberry.type
+class CreateUserResponse:
+    user: UserType
+    message: str
+    success: bool
 
 
 # ==================================================
@@ -245,3 +263,63 @@ class Mutation:
             success=True,
             message=f"Logged out successfully from all sessions."
         )
+
+    @strawberry.mutation
+    def create_user(self, info, data: CreateUserInput) -> CreateUserResponse:
+        """
+        Admin-only: Create a new user with password hashing
+        Requires ADMIN or SUPER_ADMIN role
+        """
+        user = info.context.request.user
+        
+        # Check if user is authenticated
+        if not user or not user.is_authenticated:
+            raise Exception("Authentication required")
+        
+        # Check if user is admin
+        if user.role.code not in ['ADMIN', 'SUPER_ADMIN']:
+            raise Exception("Only admins can create new users")
+        
+        # Validate input
+        if not data.email and not data.register_number:
+            raise Exception("Either email or register number must be provided")
+        
+        # Check if email already exists
+        if data.email and User.objects.filter(email__iexact=data.email).exists():
+            raise Exception(f"User with email {data.email} already exists")
+        
+        # Check if register number already exists
+        if data.register_number and User.objects.filter(register_number__iexact=data.register_number).exists():
+            raise Exception(f"User with register number {data.register_number} already exists")
+        
+        # Validate role exists
+        try:
+            role = Role.objects.get(id=data.role_id)
+        except Role.DoesNotExist:
+            raise Exception(f"Role with ID {data.role_id} not found")
+        
+        # Validate department if provided
+        department = None
+        if data.department_id:
+            try:
+                department = Department.objects.get(id=data.department_id)
+            except Department.DoesNotExist:
+                raise Exception(f"Department with ID {data.department_id} not found")
+        
+        # Create user with hashed password
+        new_user = User.objects.create_user(
+            email=data.email,
+            register_number=data.register_number,
+            password=data.password,  # Will be hashed by set_password in create_user
+            role=role,
+            department=department,
+            is_active=data.is_active,
+            is_staff=data.is_staff
+        )
+        
+        return CreateUserResponse(
+            user=new_user,
+            message=f"User created successfully with {'email' if data.email else 'register number'}: {data.email or data.register_number}",
+            success=True
+        )
+

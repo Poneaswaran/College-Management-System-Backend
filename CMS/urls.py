@@ -19,6 +19,8 @@ from django.urls import path
 from django.views.decorators.csrf import csrf_exempt
 from strawberry.django.views import GraphQLView
 from django.http import JsonResponse
+from django.conf import settings
+from django.conf.urls.static import static
 
 from core.graphql.schema import schema
 
@@ -46,3 +48,7 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path("graphql/", csrf_exempt(CustomGraphQLView.as_view(schema=schema))),
 ]
+
+# Serve media files in development
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

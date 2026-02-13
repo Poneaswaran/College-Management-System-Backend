@@ -331,8 +331,8 @@ class StudentAttendanceAdmin(admin.ModelAdmin):
     def has_image(self, obj):
         """Check if attendance image exists"""
         if obj.attendance_image:
-            return format_html('<span style="color: green;">✓ Yes</span>')
-        return format_html('<span style="color: red;">✗ No</span>')
+            return format_html('<span style="color: {};">✓ Yes</span>', 'green')
+        return format_html('<span style="color: {};">✗ No</span>', 'red')
     has_image.short_description = 'Image'
     
     def get_location(self, obj):

@@ -43,6 +43,7 @@ INSTALLED_APPS = [
     "profile_management",
     "timetable",
     "attendance",
+    "assignment",
 ]
 
 MIDDLEWARE = [
