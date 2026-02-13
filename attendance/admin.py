@@ -46,16 +46,15 @@ class AttendanceSessionAdmin(admin.ModelAdmin):
     readonly_fields = [
         'created_at',
         'updated_at',
-        'opened_at',
-        'closed_at',
-        'blocked_at',
         'is_active',
         'can_mark_attendance',
         'time_remaining',
+        'total_students',
+        'present_count',
         'attendance_percentage',
     ]
     
-    raw_id_fields = [
+    autocomplete_fields = [
         'timetable_entry',
         'opened_by',
         'blocked_by',
@@ -75,9 +74,6 @@ class AttendanceSessionAdmin(admin.ModelAdmin):
                 'opened_by',
                 'opened_at',
                 'closed_at',
-                'is_active',
-                'can_mark_attendance',
-                'time_remaining',
             )
         }),
         ('Blocking/Cancellation', {
@@ -87,13 +83,6 @@ class AttendanceSessionAdmin(admin.ModelAdmin):
                 'blocked_at',
             ),
             'classes': ('collapse',)
-        }),
-        ('Statistics', {
-            'fields': (
-                'total_students',
-                'present_count',
-                'attendance_percentage',
-            )
         }),
         ('Additional Information', {
             'fields': (
@@ -112,7 +101,7 @@ class AttendanceSessionAdmin(admin.ModelAdmin):
         return super().get_queryset(request).select_related(
             'timetable_entry__subject',
             'timetable_entry__section',
-            'timetable_entry__faculty__user',
+            'timetable_entry__faculty',
             'timetable_entry__semester',
             'opened_by',
             'blocked_by'
@@ -132,9 +121,9 @@ class AttendanceSessionAdmin(admin.ModelAdmin):
     
     def get_faculty(self, obj):
         """Get faculty name"""
-        return obj.timetable_entry.faculty.user.get_full_name()
+        return obj.timetable_entry.faculty.email or obj.timetable_entry.faculty.register_number
     get_faculty.short_description = 'Faculty'
-    get_faculty.admin_order_field = 'timetable_entry__faculty__user__first_name'
+    get_faculty.admin_order_field = 'timetable_entry__faculty__email'
     
     def status_badge(self, obj):
         """Display status with color badge"""
@@ -159,9 +148,9 @@ class AttendanceSessionAdmin(admin.ModelAdmin):
         percentage = obj.attendance_percentage
         color = 'green' if percentage >= 75 else 'orange' if percentage >= 50 else 'red'
         return format_html(
-            '<span style="color: {}; font-weight: bold;">{:.2f}%</span>',
+            '<span style="color: {}; font-weight: bold;">{}%</span>',
             color,
-            percentage
+            f'{percentage:.2f}'
         )
     attendance_percentage_display.short_description = 'Attendance %'
     
@@ -249,7 +238,7 @@ class StudentAttendanceAdmin(admin.ModelAdmin):
         'attendance_image_preview',
     ]
     
-    raw_id_fields = [
+    autocomplete_fields = [
         'session',
         'student',
         'marked_by',
@@ -295,7 +284,7 @@ class StudentAttendanceAdmin(admin.ModelAdmin):
         return super().get_queryset(request).select_related(
             'session__timetable_entry__subject',
             'session__timetable_entry__section',
-            'student__user',
+            'student',
             'marked_by'
         )
     
@@ -408,7 +397,7 @@ class AttendanceReportAdmin(admin.ModelAdmin):
         'created_at',
     ]
     
-    raw_id_fields = [
+    autocomplete_fields = [
         'student',
         'subject',
         'semester',
@@ -443,7 +432,7 @@ class AttendanceReportAdmin(admin.ModelAdmin):
     def get_queryset(self, request):
         """Optimize queries"""
         return super().get_queryset(request).select_related(
-            'student__user',
+            'student',
             'subject',
             'semester'
         )
@@ -476,9 +465,9 @@ class AttendanceReportAdmin(admin.ModelAdmin):
         percentage = float(obj.attendance_percentage)
         color = 'green' if percentage >= 75 else 'orange' if percentage >= 50 else 'red'
         return format_html(
-            '<span style="color: {}; font-weight: bold; font-size: 14px;">{:.2f}%</span>',
+            '<span style="color: {}; font-weight: bold; font-size: 14px;">{}%</span>',
             color,
-            percentage
+            f'{percentage:.2f}'
         )
     percentage_display.short_description = 'Attendance %'
     percentage_display.admin_order_field = 'attendance_percentage'

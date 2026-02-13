@@ -178,7 +178,7 @@ class AttendanceSession(models.Model):
     @property
     def total_students(self):
         """Get total number of students in the section"""
-        return self.timetable_entry.section.students.count()
+        return self.timetable_entry.section.student_profiles.count()
     
     @property
     def present_count(self):
@@ -311,7 +311,7 @@ class StudentAttendance(models.Model):
         # Ensure student belongs to the section
         if self.session and self.student:
             section = self.session.timetable_entry.section
-            if not section.students.filter(id=self.student.id).exists():
+            if not section.student_profiles.filter(id=self.student.id).exists():
                 raise ValidationError(
                     f"Student {self.student.full_name} does not belong to section {section.name}"
                 )

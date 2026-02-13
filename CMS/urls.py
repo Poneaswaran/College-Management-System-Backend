@@ -18,10 +18,31 @@ from django.contrib import admin
 from django.urls import path
 from django.views.decorators.csrf import csrf_exempt
 from strawberry.django.views import GraphQLView
+from django.http import JsonResponse
 
 from core.graphql.schema import schema
 
+
+class CustomGraphQLView(GraphQLView):
+    """Custom GraphQL view that returns 400 on errors"""
+    
+    def get_response(self, request, data, **kwargs):
+        response = super().get_response(request, data, **kwargs)
+        
+        # If response has errors, change status to 400
+        if hasattr(response, 'data'):
+            import json
+            try:
+                response_data = json.loads(response.content)
+                if 'errors' in response_data and response_data['errors']:
+                    response.status_code = 400
+            except (json.JSONDecodeError, AttributeError):
+                pass
+        
+        return response
+
+
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path("graphql/", csrf_exempt(GraphQLView.as_view(schema=schema))),
+    path("graphql/", csrf_exempt(CustomGraphQLView.as_view(schema=schema))),
 ]

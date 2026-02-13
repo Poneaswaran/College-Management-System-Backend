@@ -71,7 +71,7 @@ class JWTAuthenticationMiddleware(MiddlewareMixin):
                             'department'
                         ).prefetch_related(
                             'student_profile',
-                            'faculty_profile'
+                            'parent_profile'
                         ).get(id=user_id, is_active=True)
                         
                         # Attach authenticated user to request

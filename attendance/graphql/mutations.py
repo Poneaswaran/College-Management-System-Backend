@@ -18,7 +18,8 @@ from attendance.graphql.types import (
     MarkAttendanceInput,
     OpenSessionInput,
     BlockSessionInput,
-    ManualMarkAttendanceInput
+    ManualMarkAttendanceInput,
+    MarkAttendanceResponse
 )
 
 
@@ -91,7 +92,7 @@ class AttendanceMutation:
         self,
         info,
         input: MarkAttendanceInput
-    ) -> StudentAttendanceType:
+    ) -> MarkAttendanceResponse:
         """
         Student marks their attendance with image capture
         Requires camera photo (no gallery upload)
@@ -108,7 +109,7 @@ class AttendanceMutation:
         try:
             session = AttendanceSession.objects.select_related(
                 'timetable_entry__section'
-            ).get(id=input.session_id)
+            ).get(id=int(input.session_id))
         except AttendanceSession.DoesNotExist:
             raise Exception("Attendance session not found")
         
@@ -155,7 +156,11 @@ class AttendanceMutation:
             semester=session.timetable_entry.semester
         )
         
-        return attendance
+        return MarkAttendanceResponse(
+            attendance=attendance,
+            message="Attendance marked successfully" if created else "Attendance updated successfully",
+            success=True
+        )
     
     @strawberry.mutation
     def close_attendance_session(

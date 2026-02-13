@@ -39,7 +39,7 @@ class AttendanceQuery:
             status='ACTIVE'
         ).select_related(
             'timetable_entry__subject',
-            'timetable_entry__faculty__user',
+            'timetable_entry__faculty',
             'timetable_entry__period_definition',
             'timetable_entry__section',
             'timetable_entry__semester'
