@@ -42,6 +42,16 @@ class SemesterType:
     @strawberry_django.field
     def display_name(self) -> str:
         return self.get_number_display()
+    
+    @strawberry_django.field
+    def name(self) -> str:
+        """Semester name (e.g., 'Odd Semester')"""
+        return self.get_number_display()
+    
+    @strawberry_django.field
+    def year(self) -> str:
+        """Academic year code (e.g., '2024-25')"""
+        return self.academic_year.year_code
 
 
 # ==================================================

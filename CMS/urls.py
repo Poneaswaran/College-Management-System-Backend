@@ -21,25 +21,67 @@ from strawberry.django.views import GraphQLView
 from django.http import JsonResponse
 from django.conf import settings
 from django.conf.urls.static import static
+import json
 
 from core.graphql.schema import schema
 
 
 class CustomGraphQLView(GraphQLView):
-    """Custom GraphQL view that returns 400 on errors"""
+    """Custom GraphQL view that returns proper HTTP status codes for errors"""
     
     def get_response(self, request, data, **kwargs):
         response = super().get_response(request, data, **kwargs)
         
-        # If response has errors, change status to 400
-        if hasattr(response, 'data'):
-            import json
-            try:
-                response_data = json.loads(response.content)
-                if 'errors' in response_data and response_data['errors']:
-                    response.status_code = 400
-            except (json.JSONDecodeError, AttributeError):
-                pass
+        # Parse response to check for errors
+        try:
+            response_data = json.loads(response.content)
+            
+            # Check if there are errors in the response
+            if 'errors' in response_data and response_data['errors']:
+                errors = response_data['errors']
+                
+                # Determine status code based on error type
+                status_code = 400  # Default to bad request
+                
+                for error in errors:
+                    error_message = error.get('message', '').lower()
+                    
+                    # Authentication errors
+                    if any(keyword in error_message for keyword in [
+                        'authentication', 'not authenticated', 'permission denied',
+                        'unauthorized', 'not authorized', 'token', 'invalid token'
+                    ]):
+                        status_code = 401
+                        break
+                    
+                    # Authorization/Permission errors
+                    elif any(keyword in error_message for keyword in [
+                        'forbidden', 'not allowed', 'access denied',
+                        'insufficient permissions', 'role'
+                    ]):
+                        status_code = 403
+                        break
+                    
+                    # Not found errors
+                    elif any(keyword in error_message for keyword in [
+                        'not found', 'does not exist', 'no matching'
+                    ]):
+                        status_code = 404
+                        break
+                    
+                    # Validation errors (keep as 400)
+                    elif any(keyword in error_message for keyword in [
+                        'invalid', 'required', 'validation', 'must be',
+                        'cannot', 'expected'
+                    ]):
+                        status_code = 400
+                        break
+                
+                response.status_code = status_code
+                
+        except (json.JSONDecodeError, AttributeError, KeyError):
+            # If we can't parse the response, leave it as is
+            pass
         
         return response
 

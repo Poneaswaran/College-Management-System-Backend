@@ -2,8 +2,9 @@
 import strawberry
 from typing import List, Optional
 
-from profile_management.models import StudentProfile, ParentProfile
+from profile_management.models import StudentProfile, ParentProfile, AcademicYear, Semester
 from .types import StudentProfileType, ParentProfileType
+from timetable.graphql.types import AcademicYearType, SemesterType
 
 
 @strawberry.type
@@ -77,3 +78,44 @@ class ProfileQuery:
             qs = qs.filter(academic_status=academic_status)
             
         return qs
+    
+    # ==================================================
+    # ACADEMIC YEAR QUERIES
+    # ==================================================
+    
+    @strawberry.field
+    def academic_years(self) -> List[AcademicYearType]:
+        """Get all academic years"""
+        return AcademicYear.objects.all()
+    
+    @strawberry.field
+    def current_academic_year(self) -> Optional[AcademicYearType]:
+        """Get the current academic year"""
+        return AcademicYear.objects.filter(is_current=True).first()
+    
+    @strawberry.field
+    def academic_year(self, id: int) -> Optional[AcademicYearType]:
+        """Get academic year by ID"""
+        return AcademicYear.objects.filter(id=id).first()
+    
+    # ==================================================
+    # SEMESTER QUERIES
+    # ==================================================
+    
+    @strawberry.field
+    def semesters(self, academic_year_id: Optional[int] = None) -> List[SemesterType]:
+        """Get all semesters, optionally filtered by academic year"""
+        qs = Semester.objects.select_related('academic_year')
+        if academic_year_id:
+            qs = qs.filter(academic_year_id=academic_year_id)
+        return qs
+    
+    @strawberry.field
+    def current_semester(self) -> Optional[SemesterType]:
+        """Get the current semester"""
+        return Semester.objects.select_related('academic_year').filter(is_current=True).first()
+    
+    @strawberry.field
+    def semester(self, id: int) -> Optional[SemesterType]:
+        """Get semester by ID"""
+        return Semester.objects.select_related('academic_year').filter(id=id).first()

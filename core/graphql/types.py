@@ -37,6 +37,11 @@ class SectionType:
     name: str
     year: int
     course: CourseType
+    
+    @strawberry.field
+    def semester_id(self) -> Optional[int]:
+        """Returns None - sections are not directly tied to semesters"""
+        return None
 
 
 @strawberry.type

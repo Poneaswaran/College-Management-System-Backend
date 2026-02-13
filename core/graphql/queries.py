@@ -47,17 +47,21 @@ class Query:
     @strawberry.field
     def sections(
         self,
-        course_id: Optional[int] = None,
-        year: Optional[int] = None
+        course_id: Optional[strawberry.ID] = None,
+        year: Optional[int] = None,
+        subject_id: Optional[strawberry.ID] = None
     ) -> List[SectionType]:
         qs = Section.objects.select_related(
             "course",
             "course__department"
         )
         if course_id:
-            qs = qs.filter(course_id=course_id)
+            qs = qs.filter(course_id=int(course_id))
         if year:
             qs = qs.filter(year=year)
+        if subject_id:
+            # Filter sections that have timetable entries for this subject
+            qs = qs.filter(timetable_entries__subject_id=int(subject_id)).distinct()
         return qs
 
     # ==================================================
