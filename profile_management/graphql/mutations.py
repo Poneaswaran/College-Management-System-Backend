@@ -2,6 +2,7 @@
 import strawberry
 from typing import Optional
 from datetime import date
+from strawberry.types import Info
 
 import jwt
 import random
@@ -15,6 +16,7 @@ from profile_management.models import StudentProfile
 from .types import StudentProfileType
 from profile_management.models import ParentProfile, ParentLoginOTP
 from core.graphql.types import UserType
+from core.graphql.auth import require_auth
 
 User = get_user_model()
 
@@ -84,8 +86,10 @@ class ParentVerifyResponse:
 class ProfileMutation:
 
     @strawberry.mutation
+    @require_auth
     def update_student_profile(
         self,
+        info: Info,
         register_number: str,
         data: UpdateStudentProfileInput
     ) -> StudentProfileResponse:
@@ -128,8 +132,10 @@ class ProfileMutation:
             raise Exception(f"Student profile with register number {register_number} not found")
 
     @strawberry.mutation
+    @require_auth
     def admin_update_student_profile(
         self,
+        info: Info,
         register_number: str,
         data: AdminUpdateStudentProfileInput
     ) -> StudentProfileResponse:

@@ -1,9 +1,11 @@
 """GraphQL queries for profile management"""
 import strawberry
 from typing import List, Optional
+from strawberry.types import Info
 
 from profile_management.models import StudentProfile, ParentProfile
 from .types import StudentProfileType, ParentProfileType
+from core.graphql.auth import require_auth
 
 
 @strawberry.type
@@ -14,7 +16,8 @@ class ProfileQuery:
     # ==================================================
     
     @strawberry.field
-    def my_profile(self, register_number: str) -> Optional[StudentProfileType]:
+    @require_auth
+    def my_profile(self, info: Info, register_number: str) -> Optional[StudentProfileType]:
         """Get student's own profile"""
         return (
             StudentProfile.objects
@@ -32,7 +35,8 @@ class ProfileQuery:
         )
     
     @strawberry.field
-    def student_profile(self, register_number: str) -> Optional[StudentProfileType]:
+    @require_auth
+    def student_profile(self, info: Info, register_number: str) -> Optional[StudentProfileType]:
         """Get student profile by register number"""
         return (
             StudentProfile.objects
@@ -50,8 +54,10 @@ class ProfileQuery:
         )
     
     @strawberry.field
+    @require_auth
     def student_profiles(
         self,
+        info: Info,
         department_id: Optional[int] = None,
         course_id: Optional[int] = None,
         year: Optional[int] = None,

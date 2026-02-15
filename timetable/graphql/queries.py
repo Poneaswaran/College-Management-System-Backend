@@ -3,6 +3,7 @@ GraphQL queries for timetable management
 """
 import strawberry
 from typing import List, Optional
+from strawberry.types import Info
 
 from profile_management.models import Semester
 from timetable.models import (
@@ -18,6 +19,7 @@ from .types import (
     RoomType,
     TimetableEntryType
 )
+from core.graphql.auth import require_auth
 
 
 @strawberry.type
@@ -27,13 +29,16 @@ class TimetableQuery:
     """
 
     @strawberry.field
-    def current_semester(self) -> Optional[SemesterType]:
+    @require_auth
+    def current_semester(self, info: Info) -> Optional[SemesterType]:
         """Get the current active semester"""
         return Semester.objects.filter(is_current=True).select_related('academic_year').first()
 
     @strawberry.field
+    @require_auth
     def section_timetable(
         self,
+        info: Info,
         section_id: int,
         semester_id: Optional[int] = None
     ) -> List[TimetableEntryType]:
@@ -82,8 +87,10 @@ class TimetableQuery:
         return list(entries)
 
     @strawberry.field
+    @require_auth
     def faculty_schedule(
         self,
+        info: Info,
         faculty_id: int,
         semester_id: Optional[int] = None
     ) -> List[TimetableEntryType]:
@@ -129,8 +136,10 @@ class TimetableQuery:
         return list(entries)
 
     @strawberry.field
+    @require_auth
     def period_definitions(
         self,
+        info: Info,
         semester_id: int,
         day_of_week: Optional[int] = None
     ) -> List[PeriodDefinitionType]:
@@ -154,8 +163,10 @@ class TimetableQuery:
         return list(query.order_by('day_of_week', 'period_number'))
 
     @strawberry.field
+    @require_auth
     def subjects(
         self,
+        info: Info,
         department_id: Optional[int] = None,
         semester_number: Optional[int] = None,
         is_active: Optional[bool] = True
@@ -185,8 +196,10 @@ class TimetableQuery:
         return list(query.order_by('code'))
 
     @strawberry.field
+    @require_auth
     def rooms(
         self,
+        info: Info,
         room_type: Optional[str] = None,
         department_id: Optional[int] = None,
         is_active: Optional[bool] = True
@@ -216,8 +229,10 @@ class TimetableQuery:
         return list(query.order_by('building', 'room_number'))
 
     @strawberry.field
+    @require_auth
     def room_schedule(
         self,
+        info: Info,
         room_id: int,
         semester_id: Optional[int] = None,
         day_of_week: Optional[int] = None

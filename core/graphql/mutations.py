@@ -1,5 +1,6 @@
 import strawberry
 from typing import Optional
+from strawberry.types import Info
 import jwt
 from django.conf import settings
 from django.contrib.auth import get_user_model
@@ -8,6 +9,7 @@ from datetime import datetime, timedelta
 
 from .types import UserType
 from core.models import TokenBlacklist
+from .auth import require_auth
 
 User = get_user_model()
 
@@ -142,7 +144,8 @@ class Mutation:
             raise Exception("User not found")
 
     @strawberry.mutation
-    def logout(self, info, access_token: Optional[str] = None) -> LogoutResponse:
+    @require_auth
+    def logout(self, info: Info, access_token: Optional[str] = None) -> LogoutResponse:
         """
         Logout user by blacklisting their access token
         Token can be provided as argument or extracted from Authorization header
@@ -208,7 +211,8 @@ class Mutation:
             raise Exception("Invalid token provided")
 
     @strawberry.mutation
-    def logout_all_sessions(self, info) -> LogoutResponse:
+    @require_auth
+    def logout_all_sessions(self, info: Info) -> LogoutResponse:
         """
         Logout user from all devices by blacklisting all their active tokens
         Requires authenticated request
