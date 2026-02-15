@@ -165,14 +165,17 @@ class CourseGrade(models.Model):
     
     def clean(self):
         """Validate grade data"""
-        if self.internal_marks > self.internal_max_marks:
-            raise ValidationError("Internal marks cannot exceed maximum")
+        if self.internal_marks is not None and self.internal_max_marks is not None:
+            if self.internal_marks > self.internal_max_marks:
+                raise ValidationError("Internal marks cannot exceed maximum")
         
-        if self.exam_marks > self.exam_max_marks:
-            raise ValidationError("Exam marks cannot exceed maximum")
+        if self.exam_marks is not None and self.exam_max_marks is not None:
+            if self.exam_marks > self.exam_max_marks:
+                raise ValidationError("Exam marks cannot exceed maximum")
         
-        if self.total_marks > self.total_max_marks:
-            raise ValidationError("Total marks cannot exceed maximum")
+        if self.total_marks is not None and self.total_max_marks is not None:
+            if self.total_marks > self.total_max_marks:
+                raise ValidationError("Total marks cannot exceed maximum")
     
     def save(self, *args, **kwargs):
         """Calculate total marks, percentage, grade, and grade points before saving"""

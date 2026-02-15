@@ -73,6 +73,7 @@ class StudentDashboardType:
     """Complete student dashboard data"""
     student_name: str
     register_number: str
+    profile_photo_url: Optional[str]
     assignments_due_this_week: List[AssignmentDueType]
     total_pending_assignments: int
     total_overdue_assignments: int
@@ -510,6 +511,7 @@ class ProfileQuery:
             return StudentDashboardType(
                 student_name=student_profile.full_name,
                 register_number=student_profile.register_number,
+                profile_photo_url=f"/media/{student_profile.profile_photo}" if student_profile.profile_photo else None,
                 assignments_due_this_week=assignments_due,
                 total_pending_assignments=total_pending,
                 total_overdue_assignments=total_overdue,
