@@ -92,3 +92,13 @@ class Query:
     @require_auth
     def users(self, info: Info) -> List[UserType]:
         return User.objects.select_related("role", "department")
+    
+    @strawberry.field
+    @require_auth
+    def me(self, info: Info) -> Optional[UserType]:
+        """
+        Get current authenticated user info
+        Used for page refresh to restore auth state
+        Requires valid JWT token in Authorization header
+        """
+        return info.context.request.user
