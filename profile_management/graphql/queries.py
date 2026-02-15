@@ -84,6 +84,46 @@ class StudentDashboardType:
     today_classes: List[NextClassType]
 
 
+# ==================================================
+# COURSE ENROLLMENT TYPES
+# ==================================================
+
+@strawberry.type
+class CourseScheduleType:
+    """Class schedule for a course"""
+    day_name: str
+    start_time: str
+    end_time: str
+
+
+@strawberry.type
+class EnrolledCourseType:
+    """Detailed information about a student's enrolled course"""
+    id: int
+    subject_code: str
+    subject_name: str
+    subject_type: str
+    credits: float
+    faculty_name: str
+    faculty_email: Optional[str]
+    description: str
+    course_progress: float
+    grade: Optional[str]
+    attendance_percentage: float
+    completed_assignments: int
+    total_assignments: int
+    class_schedule: List[CourseScheduleType]
+
+
+@strawberry.type
+class CourseOverviewType:
+    """Overview statistics for student's courses"""
+    total_courses: int
+    total_credits: float
+    avg_progress: float
+    avg_attendance: float
+
+
 @strawberry.type
 class ProfileQuery:
 
@@ -505,3 +545,248 @@ class ProfileQuery:
         else:
             weeks = int(seconds / 604800)
             return f"{weeks} week{'s' if weeks != 1 else ''} ago"
+
+    # ==================================================
+    # ENROLLED COURSES
+    # ==================================================
+    
+    @strawberry.field
+    @require_auth
+    def my_courses(self, info: Info, register_number: str) -> List[EnrolledCourseType]:
+        """
+        Get all courses enrolled by a student with detailed information
+        Includes progress, grades, attendance, and schedule
+        """
+        try:
+            from django.db.models import Count, Q, Avg
+            from attendance.models import StudentAttendance, AttendanceSession
+            
+            # Get student profile
+            student_profile = StudentProfile.objects.select_related(
+                'section', 'course', 'department'
+            ).get(register_number=register_number)
+            
+            # Get current semester
+            current_semester = Semester.objects.filter(is_current=True).first()
+            
+            if not current_semester or not student_profile.section:
+                return []
+            
+            # Get all timetable entries for student's section (these are their enrolled courses)
+            timetable_entries = TimetableEntry.objects.filter(
+                section=student_profile.section,
+                semester=current_semester,
+                is_active=True
+            ).select_related(
+                'subject',
+                'subject__department',
+                'faculty',
+                'room',
+                'period_definition'
+            ).order_by('subject__id')
+            
+            # Get unique subjects (SQLite doesn't support DISTINCT ON)
+            seen_subjects = set()
+            unique_entries = []
+            for entry in timetable_entries:
+                if entry.subject.id not in seen_subjects:
+                    seen_subjects.add(entry.subject.id)
+                    unique_entries.append(entry)
+            
+            enrolled_courses = []
+            
+            for entry in unique_entries:
+                subject = entry.subject
+                
+                # Get all schedule entries for this subject
+                schedule_entries = TimetableEntry.objects.filter(
+                    section=student_profile.section,
+                    subject=subject,
+                    semester=current_semester,
+                    is_active=True
+                ).select_related('period_definition')
+                
+                # Build class schedule
+                class_schedule = []
+                day_names = {
+                    1: 'Monday', 2: 'Tuesday', 3: 'Wednesday',
+                    4: 'Thursday', 5: 'Friday', 6: 'Saturday', 7: 'Sunday'
+                }
+                
+                for sched_entry in schedule_entries:
+                    class_schedule.append(CourseScheduleType(
+                        day_name=day_names.get(sched_entry.period_definition.day_of_week, 'Unknown'),
+                        start_time=sched_entry.period_definition.start_time.strftime('%I:%M %p'),
+                        end_time=sched_entry.period_definition.end_time.strftime('%I:%M %p')
+                    ))
+                
+                # Get assignments for this subject
+                subject_assignments = Assignment.objects.filter(
+                    subject=subject,
+                    section=student_profile.section,
+                    status__in=['PUBLISHED', 'CLOSED', 'GRADED']
+                )
+                
+                total_assignments = subject_assignments.count()
+                completed_assignments = AssignmentSubmission.objects.filter(
+                    assignment__in=subject_assignments,
+                    student=student_profile
+                ).count()
+                
+                # Calculate course progress
+                course_progress = (completed_assignments / total_assignments * 100) if total_assignments > 0 else 0
+                
+                # Calculate grade (average of all graded assignments)
+                grades = AssignmentGrade.objects.filter(
+                    submission__assignment__subject=subject,
+                    submission__student=student_profile
+                )
+                
+                grade_letter = None
+                if grades.exists():
+                    avg_percentage = grades.aggregate(
+                        avg=Avg('marks_obtained')
+                    )['avg']
+                    
+                    if avg_percentage is not None:
+                        # Convert to letter grade
+                        if avg_percentage >= 90:
+                            grade_letter = 'A+'
+                        elif avg_percentage >= 85:
+                            grade_letter = 'A'
+                        elif avg_percentage >= 80:
+                            grade_letter = 'A-'
+                        elif avg_percentage >= 75:
+                            grade_letter = 'B+'
+                        elif avg_percentage >= 70:
+                            grade_letter = 'B'
+                        elif avg_percentage >= 65:
+                            grade_letter = 'B-'
+                        elif avg_percentage >= 60:
+                            grade_letter = 'C+'
+                        elif avg_percentage >= 55:
+                            grade_letter = 'C'
+                        elif avg_percentage >= 50:
+                            grade_letter = 'D'
+                        else:
+                            grade_letter = 'F'
+                
+                # Calculate attendance percentage for this subject
+                # Get all attendance sessions for this subject
+                attendance_sessions = AttendanceSession.objects.filter(
+                    timetable_entry__subject=subject,
+                    timetable_entry__section=student_profile.section,
+                    status__in=['CLOSED', 'BLOCKED', 'CANCELLED']
+                )
+                
+                total_sessions = attendance_sessions.count()
+                attended_sessions = StudentAttendance.objects.filter(
+                    student=student_profile,
+                    session__in=attendance_sessions,
+                    status='PRESENT'
+                ).count()
+                
+                attendance_percentage = (attended_sessions / total_sessions * 100) if total_sessions > 0 else 0
+                
+                # Get subject description
+                description = subject.description or f"Advanced topics in {subject.name.lower()}"
+                
+                enrolled_courses.append(EnrolledCourseType(
+                    id=subject.id,
+                    subject_code=subject.code,
+                    subject_name=subject.name,
+                    subject_type=subject.subject_type,
+                    credits=float(subject.credits),
+                    faculty_name=(entry.faculty.email or entry.faculty.register_number) if entry.faculty else 'TBA',
+                    faculty_email=entry.faculty.email if entry.faculty else None,
+                    description=description,
+                    course_progress=round(course_progress, 1),
+                    grade=grade_letter,
+                    attendance_percentage=round(attendance_percentage, 1),
+                    completed_assignments=completed_assignments,
+                    total_assignments=total_assignments,
+                    class_schedule=class_schedule
+                ))
+            
+            return enrolled_courses
+            
+        except StudentProfile.DoesNotExist:
+            return []
+    
+    @strawberry.field
+    @require_auth
+    def course_overview(self, info: Info, register_number: str) -> Optional[CourseOverviewType]:
+        """
+        Get overview statistics for student's enrolled courses
+        Shows total courses, credits, average progress, and average attendance
+        """
+        try:
+            from django.db.models import Avg, Sum
+            from attendance.models import StudentAttendance, AttendanceSession
+            
+            # Get student profile
+            student_profile = StudentProfile.objects.select_related('section').get(
+                register_number=register_number
+            )
+            
+            # Get current semester
+            current_semester = Semester.objects.filter(is_current=True).first()
+            
+            if not current_semester or not student_profile.section:
+                return None
+            
+            # Get unique subjects for student's section
+            subjects = TimetableEntry.objects.filter(
+                section=student_profile.section,
+                semester=current_semester,
+                is_active=True
+            ).values('subject').distinct().count()
+            
+            # Calculate total credits
+            total_credits = TimetableEntry.objects.filter(
+                section=student_profile.section,
+                semester=current_semester,
+                is_active=True
+            ).values('subject').distinct().aggregate(
+                total=Sum('subject__credits')
+            )['total'] or 0
+            
+            # Calculate average progress across all courses
+            all_assignments = Assignment.objects.filter(
+                section=student_profile.section,
+                status__in=['PUBLISHED', 'CLOSED', 'GRADED']
+            )
+            
+            total_assignments_count = all_assignments.count()
+            completed_count = AssignmentSubmission.objects.filter(
+                assignment__in=all_assignments,
+                student=student_profile
+            ).count()
+            
+            avg_progress = (completed_count / total_assignments_count * 100) if total_assignments_count > 0 else 0
+            
+            # Calculate average attendance across all subjects
+            all_sessions = AttendanceSession.objects.filter(
+                timetable_entry__section=student_profile.section,
+                timetable_entry__semester=current_semester,
+                status__in=['CLOSED', 'BLOCKED', 'CANCELLED']
+            )
+            
+            total_sessions_count = all_sessions.count()
+            attended_count = StudentAttendance.objects.filter(
+                student=student_profile,
+                session__in=all_sessions,
+                status='PRESENT'
+            ).count()
+            
+            avg_attendance = (attended_count / total_sessions_count * 100) if total_sessions_count > 0 else 0
+            
+            return CourseOverviewType(
+                total_courses=subjects,
+                total_credits=float(total_credits),
+                avg_progress=round(avg_progress, 1),
+                avg_attendance=round(avg_attendance, 1)
+            )
+            
+        except StudentProfile.DoesNotExist:
+            return None

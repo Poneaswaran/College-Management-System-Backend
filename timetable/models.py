@@ -72,6 +72,7 @@ class Subject(models.Model):
     SUBJECT_TYPE_CHOICES = [
         ('THEORY', 'Theory'),
         ('LAB', 'Lab'),
+        ('TUTORIAL', 'Tutorial'),
         ('ELECTIVE', 'Elective'),
         ('PROJECT', 'Project'),
     ]
@@ -82,6 +83,10 @@ class Subject(models.Model):
         help_text="Subject code (e.g., CS301)"
     )
     name = models.CharField(max_length=200)
+    description = models.TextField(
+        blank=True,
+        help_text="Course description and objectives"
+    )
     department = models.ForeignKey(
         Department,
         on_delete=models.CASCADE,
