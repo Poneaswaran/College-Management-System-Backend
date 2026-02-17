@@ -6,6 +6,8 @@ from typing import Optional
 from django.utils import timezone
 from django.core.files.base import ContentFile
 import json
+import base64
+import os
 
 from assignment.models import Assignment, AssignmentSubmission, AssignmentGrade
 from assignment.validators import AssignmentValidator
@@ -65,6 +67,40 @@ class AssignmentMutation:
         if not is_valid:
             raise Exception(error_message)
         
+        # Handle base64 file upload
+        attachment_file = None
+        if input.attachment_data and input.attachment_filename:
+            try:
+                # Decode base64 data
+                # Handle both with and without data URI prefix
+                if ',' in input.attachment_data:
+                    # Format: "data:application/pdf;base64,JVBERi0..."
+                    file_data = base64.b64decode(input.attachment_data.split(',')[-1])
+                else:
+                    # Raw base64 string
+                    file_data = base64.b64decode(input.attachment_data)
+                
+                # Validate file size (10MB max)
+                max_size = 10 * 1024 * 1024  # 10MB
+                if len(file_data) > max_size:
+                    raise Exception(f"File too large. Maximum size is 10MB (received {len(file_data) / 1024 / 1024:.2f}MB)")
+                
+                # Validate file type
+                allowed_extensions = ['.pdf', '.doc', '.docx', '.txt', '.zip', '.ppt', '.pptx', '.xls', '.xlsx']
+                ext = os.path.splitext(input.attachment_filename)[1].lower()
+                if ext not in allowed_extensions:
+                    raise Exception(f"File type '{ext}' not allowed. Allowed types: {', '.join(allowed_extensions)}")
+                
+                # Create ContentFile
+                attachment_file = ContentFile(file_data, name=input.attachment_filename)
+                
+            except base64.binascii.Error as e:
+                raise Exception(f"Invalid base64 data: {str(e)}")
+            except Exception as e:
+                if "File too large" in str(e) or "File type" in str(e):
+                    raise
+                raise Exception(f"File upload error: {str(e)}")
+        
         # Create assignment
         assignment = Assignment.objects.create(
             subject=subject,
@@ -79,7 +115,8 @@ class AssignmentMutation:
             weightage=input.weightage,
             allow_late_submission=input.allow_late_submission,
             late_submission_deadline=input.late_submission_deadline,
-            status='DRAFT'
+            status='DRAFT',
+            attachment=attachment_file
         )
         
         return assignment
@@ -106,6 +143,38 @@ class AssignmentMutation:
             if user.role.name not in ['ADMIN', 'SUPER_ADMIN']:
                 raise Exception("Only the creator can update this assignment")
         
+        # Handle base64 file upload
+        if input.attachment_data and input.attachment_filename:
+            try:
+                # Decode base64 data
+                if ',' in input.attachment_data:
+                    file_data = base64.b64decode(input.attachment_data.split(',')[-1])
+                else:
+                    file_data = base64.b64decode(input.attachment_data)
+                
+                # Validate file size (10MB max)
+                max_size = 10 * 1024 * 1024
+                if len(file_data) > max_size:
+                    raise Exception(f"File too large. Maximum size is 10MB")
+                
+                # Validate file type
+                allowed_extensions = ['.pdf', '.doc', '.docx', '.txt', '.zip', '.ppt', '.pptx', '.xls', '.xlsx']
+                ext = os.path.splitext(input.attachment_filename)[1].lower()
+                if ext not in allowed_extensions:
+                    raise Exception(f"File type not allowed. Allowed: {', '.join(allowed_extensions)}")
+                
+                # Delete old attachment if exists
+                if assignment.attachment:
+                    assignment.attachment.delete(save=False)
+                
+                # Set new attachment
+                assignment.attachment = ContentFile(file_data, name=input.attachment_filename)
+                
+            except Exception as e:
+                if "File too large" in str(e) or "File type" in str(e):
+                    raise
+                raise Exception(f"File upload error: {str(e)}")
+        
         # Check if assignment is published (restrict updates)
         if assignment.status != 'DRAFT':
             # Only allow certain updates for published assignments
@@ -113,8 +182,6 @@ class AssignmentMutation:
                 assignment.title = input.title
             if input.description:
                 assignment.description = input.description
-            if input.feedback:
-                assignment.feedback = input.feedback
         else:
             # Update all fields for draft assignments
             if input.title:

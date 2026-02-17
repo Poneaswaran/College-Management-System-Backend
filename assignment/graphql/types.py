@@ -25,6 +25,9 @@ class CreateAssignmentInput:
     weightage: Decimal
     allow_late_submission: bool = False
     late_submission_deadline: Optional[datetime] = None
+    # Base64 file upload
+    attachment_data: Optional[str] = None  # Base64 encoded file (data:type;base64,...)
+    attachment_filename: Optional[str] = None  # Original filename
 
 
 @strawberry.input
@@ -38,6 +41,9 @@ class UpdateAssignmentInput:
     weightage: Optional[Decimal] = None
     allow_late_submission: Optional[bool] = None
     late_submission_deadline: Optional[datetime] = None
+    # Base64 file upload
+    attachment_data: Optional[str] = None  # Base64 encoded file
+    attachment_filename: Optional[str] = None  # Original filename
 
 
 @strawberry.input
@@ -175,6 +181,27 @@ class AssignmentType:
             average_marks=stats['average_marks'],
             average_percentage=stats['average_percentage']
         )
+    
+    # File attachment fields
+    @strawberry.field
+    def has_attachment(self) -> bool:
+        """Check if assignment has attachment"""
+        return bool(self.attachment)
+    
+    @strawberry.field
+    def attachment_url(self) -> Optional[str]:
+        """Get attachment URL"""
+        if self.attachment:
+            return self.attachment.url
+        return None
+    
+    @strawberry.field
+    def attachment_filename(self) -> Optional[str]:
+        """Get attachment filename"""
+        if self.attachment:
+            import os
+            return os.path.basename(self.attachment.name)
+        return None
 
 
 @strawberry_django.type(AssignmentSubmission)
