@@ -4,6 +4,7 @@ GraphQL Queries for Attendance System
 import strawberry
 from typing import List, Optional
 from datetime import date
+from strawberry.types import Info
 from django.utils import timezone
 
 from attendance.models import AttendanceSession, StudentAttendance, AttendanceReport
@@ -12,6 +13,7 @@ from attendance.graphql.types import (
     StudentAttendanceType,
     AttendanceReportType
 )
+from core.graphql.auth import require_auth
 
 
 @strawberry.type
@@ -19,7 +21,8 @@ class AttendanceQuery:
     """Attendance-related queries"""
     
     @strawberry.field
-    def active_sessions_for_student(self, info) -> List[AttendanceSessionType]:
+    @require_auth
+    def active_sessions_for_student(self, info: Info) -> List[AttendanceSessionType]:
         """
         Get all active attendance sessions for current student
         Student can see sessions where they can mark attendance
@@ -48,7 +51,8 @@ class AttendanceQuery:
         return list(sessions)
     
     @strawberry.field
-    def faculty_sessions_today(self, info) -> List[AttendanceSessionType]:
+    @require_auth
+    def faculty_sessions_today(self, info: Info) -> List[AttendanceSessionType]:
         """
         Get all sessions for current faculty member today
         Faculty can see all their classes for the day
@@ -85,7 +89,8 @@ class AttendanceQuery:
         return list(sessions)
     
     @strawberry.field
-    def attendance_session(self, info, session_id: int) -> Optional[AttendanceSessionType]:
+    @require_auth
+    def attendance_session(self, info: Info, session_id: int) -> Optional[AttendanceSessionType]:
         """
         Get details of a specific attendance session
         Access control: Student (if in section), Faculty (if teaches), Admin (all)
@@ -126,9 +131,10 @@ class AttendanceQuery:
         return session
     
     @strawberry.field
+    @require_auth
     def student_attendance_history(
         self,
-        info,
+        info: Info,
         student_id: Optional[int] = None,
         subject_id: Optional[int] = None,
         start_date: Optional[date] = None,
@@ -191,9 +197,10 @@ class AttendanceQuery:
         return list(query)
     
     @strawberry.field
+    @require_auth
     def attendance_report(
         self,
-        info,
+        info: Info,
         student_id: Optional[int] = None,
         subject_id: Optional[int] = None
     ) -> Optional[AttendanceReportType]:
@@ -255,9 +262,10 @@ class AttendanceQuery:
         return report
     
     @strawberry.field
+    @require_auth
     def all_reports_for_student(
         self,
-        info,
+        info: Info,
         student_id: Optional[int] = None
     ) -> List[AttendanceReportType]:
         """
@@ -305,9 +313,10 @@ class AttendanceQuery:
         return list(reports)
     
     @strawberry.field
+    @require_auth
     def section_attendance_for_session(
         self,
-        info,
+        info: Info,
         session_id: int
     ) -> List[StudentAttendanceType]:
         """
@@ -336,9 +345,10 @@ class AttendanceQuery:
         return list(attendances)
     
     @strawberry.field
+    @require_auth
     def low_attendance_students(
         self,
-        info,
+        info: Info,
         subject_id: int,
         threshold: Optional[float] = 75.0
     ) -> List[AttendanceReportType]:

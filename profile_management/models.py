@@ -189,6 +189,13 @@ class StudentProfile(models.Model):
     # ==================================================
     is_active = models.BooleanField(default=True)
     profile_completed = models.BooleanField(default=False)
+    current_gpa = models.DecimalField(
+        max_digits=3,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Current GPA (calculated from assignment grades)"
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

@@ -4,11 +4,11 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
-django = "*"
 django-cors-headers = "*"
 pillow = "*"
 strawberry-graphql = {extras = ["django"], version = "*"}
 pyjwt = "*"
+django = {extras = ["argon2"], version = "*"}
 
 [dev-packages]
 django-extensions = "*"

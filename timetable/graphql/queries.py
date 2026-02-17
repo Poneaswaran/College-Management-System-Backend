@@ -3,8 +3,10 @@ GraphQL queries for timetable management
 """
 import strawberry
 from typing import List, Optional
+from strawberry.types import Info
+from django.db.models import Count, Q
 
-from profile_management.models import Semester
+from profile_management.models import Semester, StudentProfile
 from timetable.models import (
     Subject,
     PeriodDefinition,
@@ -18,6 +20,20 @@ from .types import (
     RoomType,
     TimetableEntryType
 )
+from core.graphql.auth import require_auth
+
+
+# ==================================================
+# TIMETABLE STATISTICS TYPE
+# ==================================================
+
+@strawberry.type
+class TimetableStatisticsType:
+    """Statistics for student's weekly timetable"""
+    total_classes: int
+    theory_classes: int
+    lab_sessions: int
+    tutorial_classes: int
 
 
 @strawberry.type
@@ -27,13 +43,16 @@ class TimetableQuery:
     """
 
     @strawberry.field
-    def current_semester(self) -> Optional[SemesterType]:
+    @require_auth
+    def current_semester(self, info: Info) -> Optional[SemesterType]:
         """Get the current active semester"""
         return Semester.objects.filter(is_current=True).select_related('academic_year').first()
 
     @strawberry.field
+    @require_auth
     def section_timetable(
         self,
+        info: Info,
         section_id: int,
         semester_id: Optional[int] = None
     ) -> List[TimetableEntryType]:
@@ -82,8 +101,10 @@ class TimetableQuery:
         return list(entries)
 
     @strawberry.field
+    @require_auth
     def faculty_schedule(
         self,
+        info: Info,
         faculty_id: int,
         semester_id: Optional[int] = None
     ) -> List[TimetableEntryType]:
@@ -129,8 +150,10 @@ class TimetableQuery:
         return list(entries)
 
     @strawberry.field
+    @require_auth
     def period_definitions(
         self,
+        info: Info,
         semester_id: int,
         day_of_week: Optional[int] = None
     ) -> List[PeriodDefinitionType]:
@@ -154,8 +177,10 @@ class TimetableQuery:
         return list(query.order_by('day_of_week', 'period_number'))
 
     @strawberry.field
+    @require_auth
     def subjects(
         self,
+        info: Info,
         department_id: Optional[int] = None,
         semester_number: Optional[int] = None,
         is_active: Optional[bool] = True
@@ -185,8 +210,10 @@ class TimetableQuery:
         return list(query.order_by('code'))
 
     @strawberry.field
+    @require_auth
     def rooms(
         self,
+        info: Info,
         room_type: Optional[str] = None,
         department_id: Optional[int] = None,
         is_active: Optional[bool] = True
@@ -216,8 +243,10 @@ class TimetableQuery:
         return list(query.order_by('building', 'room_number'))
 
     @strawberry.field
+    @require_auth
     def room_schedule(
         self,
+        info: Info,
         room_id: int,
         semester_id: Optional[int] = None,
         day_of_week: Optional[int] = None
@@ -264,3 +293,107 @@ class TimetableQuery:
             'period_definition__day_of_week',
             'period_definition__start_time'
         ))
+
+    @strawberry.field
+    @require_auth
+    def my_timetable(self, info: Info, register_number: str) -> List[TimetableEntryType]:
+        """
+        Get timetable for the current student based on their register number
+        
+        Args:
+            register_number: Student's register number
+        
+        Returns:
+            List of timetable entries for the student's section
+        """
+        try:
+            # Get student profile
+            student_profile = StudentProfile.objects.select_related('section').get(
+                register_number=register_number
+            )
+            
+            # Get current semester
+            semester = Semester.objects.filter(is_current=True).first()
+            
+            if not semester or not student_profile.section:
+                return []
+            
+            # Query entries
+            entries = TimetableEntry.objects.filter(
+                section=student_profile.section,
+                semester=semester,
+                is_active=True
+            ).select_related(
+                'subject',
+                'subject__department',
+                'faculty',
+                'faculty__role',
+                'faculty__department',
+                'room',
+                'period_definition',
+                'period_definition__semester',
+                'section',
+                'section__course',
+                'semester',
+                'semester__academic_year'
+            ).order_by(
+                'period_definition__day_of_week',
+                'period_definition__start_time'
+            )
+            
+            return list(entries)
+            
+        except StudentProfile.DoesNotExist:
+            return []
+    
+    @strawberry.field
+    @require_auth
+    def timetable_statistics(
+        self,
+        info: Info,
+        register_number: str
+    ) -> Optional[TimetableStatisticsType]:
+        """
+        Get statistics for student's weekly timetable
+        
+        Args:
+            register_number: Student's register number
+        
+        Returns:
+            Statistics including total classes, theory, lab, and tutorial counts
+        """
+        try:
+            # Get student profile
+            student_profile = StudentProfile.objects.select_related('section').get(
+                register_number=register_number
+            )
+            
+            # Get current semester
+            semester = Semester.objects.filter(is_current=True).first()
+            
+            if not semester or not student_profile.section:
+                return None
+            
+            # Get all timetable entries for the week
+            entries = TimetableEntry.objects.filter(
+                section=student_profile.section,
+                semester=semester,
+                is_active=True
+            ).select_related('subject')
+            
+            # Calculate statistics
+            total_classes = entries.count()
+            theory_classes = entries.filter(subject__subject_type='THEORY').count()
+            lab_sessions = entries.filter(subject__subject_type='LAB').count()
+            tutorial_classes = entries.filter(subject__subject_type='TUTORIAL').count()
+            
+            return TimetableStatisticsType(
+                total_classes=total_classes,
+                theory_classes=theory_classes,
+                lab_sessions=lab_sessions,
+                tutorial_classes=tutorial_classes
+            )
+            
+        except StudentProfile.DoesNotExist:
+            return None
+

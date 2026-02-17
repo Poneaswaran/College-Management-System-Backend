@@ -4,6 +4,7 @@ GraphQL Mutations for Attendance System
 import strawberry
 from typing import Optional
 from datetime import date
+from strawberry.types import Info
 from django.utils import timezone
 from django.core.files.base import ContentFile
 from decimal import Decimal, ROUND_HALF_UP
@@ -22,6 +23,7 @@ from attendance.graphql.types import (
     ManualMarkAttendanceInput,
     MarkAttendanceResponse
 )
+from core.graphql.auth import require_auth
 
 
 def convert_to_decimal(value, decimal_places=6):
@@ -41,9 +43,10 @@ class AttendanceMutation:
     """Attendance-related mutations"""
     
     @strawberry.mutation
+    @require_auth
     def open_attendance_session(
         self,
-        info,
+        info: Info,
         input: OpenSessionInput
     ) -> AttendanceSessionType:
         """
@@ -101,9 +104,10 @@ class AttendanceMutation:
         return session
     
     @strawberry.mutation
+    @require_auth
     def mark_attendance(
         self,
-        info,
+        info: Info,
         input: MarkAttendanceInput
     ) -> MarkAttendanceResponse:
         """
@@ -176,9 +180,10 @@ class AttendanceMutation:
         )
     
     @strawberry.mutation
+    @require_auth
     def close_attendance_session(
         self,
-        info,
+        info: Info,
         session_id: int
     ) -> AttendanceSessionType:
         """
@@ -226,9 +231,10 @@ class AttendanceMutation:
         return session
     
     @strawberry.mutation
+    @require_auth
     def block_attendance_session(
         self,
-        info,
+        info: Info,
         input: BlockSessionInput
     ) -> AttendanceSessionType:
         """
@@ -264,9 +270,10 @@ class AttendanceMutation:
         return session
     
     @strawberry.mutation
+    @require_auth
     def reopen_blocked_session(
         self,
-        info,
+        info: Info,
         session_id: int
     ) -> AttendanceSessionType:
         """
@@ -307,9 +314,10 @@ class AttendanceMutation:
         return session
     
     @strawberry.mutation
+    @require_auth
     def manual_mark_attendance(
         self,
-        info,
+        info: Info,
         input: ManualMarkAttendanceInput
     ) -> StudentAttendanceType:
         """
@@ -369,9 +377,10 @@ class AttendanceMutation:
         return attendance
     
     @strawberry.mutation
+    @require_auth
     def bulk_mark_present(
         self,
-        info,
+        info: Info,
         session_id: int,
         student_ids: list[int]
     ) -> list[StudentAttendanceType]:
@@ -432,9 +441,10 @@ class AttendanceMutation:
         return attendances
     
     @strawberry.mutation
+    @require_auth
     def recalculate_attendance_report(
         self,
-        info,
+        info: Info,
         report_id: int
     ) -> AttendanceReportType:
         """
