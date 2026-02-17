@@ -3,12 +3,14 @@ GraphQL mutations for timetable management
 """
 import strawberry
 from typing import Optional
+from strawberry.types import Info
 from django.core.exceptions import ValidationError
 
 from profile_management.models import Semester
 from timetable.models import TimetableEntry
 from timetable.utils import generate_periods_for_config
 from .types import TimetableEntryType
+from core.graphql.auth import require_auth
 
 
 @strawberry.type
@@ -18,8 +20,10 @@ class TimetableMutation:
     """
 
     @strawberry.mutation
+    @require_auth
     def create_timetable_entry(
         self,
+        info: Info,
         section_id: int,
         subject_id: int,
         faculty_id: int,
@@ -82,8 +86,10 @@ class TimetableMutation:
             raise Exception(f"Failed to create timetable entry: {str(e)}")
 
     @strawberry.mutation
+    @require_auth
     def update_timetable_entry(
         self,
+        info: Info,
         entry_id: int,
         faculty_id: Optional[int] = None,
         room_id: Optional[int] = None,
@@ -149,8 +155,10 @@ class TimetableMutation:
             raise Exception(f"Failed to update timetable entry: {str(e)}")
 
     @strawberry.mutation
+    @require_auth
     def delete_timetable_entry(
         self,
+        info: Info,
         entry_id: int
     ) -> bool:
         """
@@ -182,8 +190,10 @@ class TimetableMutation:
             raise Exception(f"Failed to delete timetable entry: {str(e)}")
 
     @strawberry.mutation
+    @require_auth
     def generate_periods(
         self,
+        info: Info,
         semester_id: int
     ) -> str:
         """
@@ -220,8 +230,10 @@ class TimetableMutation:
             raise Exception(f"Failed to generate periods: {str(e)}")
 
     @strawberry.mutation
+    @require_auth
     def swap_timetable_slots(
         self,
+        info: Info,
         entry1_id: int,
         entry2_id: int
     ) -> str:
