@@ -56,7 +56,7 @@ class AttendanceMutation:
         user = info.context.request.user
         
         # Check if user is faculty
-        if user.role.name != 'FACULTY':
+        if user.role.code != 'FACULTY':
             raise Exception("Only faculty can open attendance sessions")
         
         # Get timetable entry
@@ -193,7 +193,7 @@ class AttendanceMutation:
         user = info.context.request.user
         
         # Check if user is faculty
-        if user.role.name != 'FACULTY':
+        if user.role.code != 'FACULTY':
             raise Exception("Only faculty can close attendance sessions")
         
         # Get session
@@ -296,9 +296,9 @@ class AttendanceMutation:
         
         # Check permissions
         can_reopen = False
-        if user.role.name in ['ADMIN', 'SUPER_ADMIN']:
+        if user.role.code in ['ADMIN', 'HOD']:
             can_reopen = True
-        elif user.role.name == 'FACULTY' and session.timetable_entry.faculty.id == user.id:
+        elif user.role.code == 'FACULTY' and session.timetable_entry.faculty.id == user.id:
             can_reopen = True
         
         if not can_reopen:
@@ -400,8 +400,8 @@ class AttendanceMutation:
             raise Exception("Attendance session not found")
         
         # Check permissions
-        if user.role.name not in ['ADMIN', 'SUPER_ADMIN']:
-            if user.role.name != 'FACULTY' or session.timetable_entry.faculty.id != user.id:
+        if user.role.code not in ['ADMIN', 'HOD']:
+            if user.role.code != 'FACULTY' or session.timetable_entry.faculty.id != user.id:
                 raise Exception("You don't have permission to mark attendance for this session")
         
         from profile_management.models import StudentProfile
@@ -462,7 +462,7 @@ class AttendanceMutation:
         has_access = False
         if hasattr(user, 'student_profile') and user.student_profile.id == report.student.id:
             has_access = True
-        elif user.role.name in ['ADMIN', 'SUPER_ADMIN', 'FACULTY']:
+        elif user.role.code in ['ADMIN', 'HOD', 'FACULTY']:
             has_access = True
         
         if not has_access:

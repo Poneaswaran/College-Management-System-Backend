@@ -39,6 +39,10 @@ class AssignmentValidator:
             return False, "You are not assigned to teach this subject to this section"
         
         # Check if due date is in the future
+        # Make due_date timezone-aware if it's naive
+        if timezone.is_naive(due_date):
+            due_date = timezone.make_aware(due_date)
+        
         if due_date <= timezone.now():
             return False, "Due date must be in the future"
         
@@ -200,7 +204,7 @@ class AssignmentValidator:
         """
         # Check if user is the creator or admin
         if assignment.created_by.id != user.id:
-            if user.role.name not in ['ADMIN', 'SUPER_ADMIN']:
+            if user.role.code not in ['ADMIN', 'HOD']:
                 return False, "Only the creator or admin can delete this assignment"
         
         # Check if has submissions

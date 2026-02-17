@@ -71,7 +71,7 @@ class AttendanceValidator:
             tuple: (is_valid, error_message)
         """
         # Check if user is the assigned faculty or admin
-        if faculty_user.role.name not in ['ADMIN', 'SUPER_ADMIN']:
+        if faculty_user.role.code not in ['ADMIN', 'HOD']:
             if session.timetable_entry.faculty.id != faculty_user.id:
                 return False, "Only the assigned faculty or admin can block this session"
         
@@ -144,11 +144,11 @@ class AttendanceValidator:
             tuple: (is_valid, error_message)
         """
         # Check if user is faculty or admin
-        if faculty_user.role.name not in ['FACULTY', 'ADMIN', 'SUPER_ADMIN']:
+        if faculty_user.role.code not in ['FACULTY', 'ADMIN', 'HOD']:
             return False, "Only faculty or admin can manually mark attendance"
         
         # Check if faculty teaches this class (unless admin)
-        if faculty_user.role.name not in ['ADMIN', 'SUPER_ADMIN']:
+        if faculty_user.role.code not in ['ADMIN', 'HOD']:
             if session.timetable_entry.faculty.id != faculty_user.id:
                 return False, "You can only manually mark attendance for classes you teach"
         
@@ -181,12 +181,12 @@ class AttendanceValidator:
                 return True, ""
         
         # Faculty can view images of students in classes they teach
-        if requesting_user.role.name == 'FACULTY':
+        if requesting_user.role.code == 'FACULTY':
             if attendance.session.timetable_entry.faculty.id == requesting_user.id:
                 return True, ""
         
         # Admin can view all
-        if requesting_user.role.name in ['ADMIN', 'SUPER_ADMIN']:
+        if requesting_user.role.code in ['ADMIN', 'HOD']:
             return True, ""
         
         return False, "You do not have permission to view this image"
@@ -222,7 +222,7 @@ class AttendanceReportValidator:
                 return True, ""
         
         # Faculty can view reports of students in classes they teach
-        if requesting_user.role.name == 'FACULTY':
+        if requesting_user.role.code == 'FACULTY':
             # Check if faculty teaches this subject to this student
             from timetable.models import TimetableEntry
             teaches_student = TimetableEntry.objects.filter(
@@ -236,7 +236,7 @@ class AttendanceReportValidator:
                 return True, ""
         
         # Admin can view all
-        if requesting_user.role.name in ['ADMIN', 'SUPER_ADMIN']:
+        if requesting_user.role.code in ['ADMIN', 'HOD']:
             return True, ""
         
         return False, "You do not have permission to view this report"

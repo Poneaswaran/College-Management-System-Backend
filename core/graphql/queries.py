@@ -55,7 +55,8 @@ class Query:
         self,
         info: Info,
         course_id: Optional[int] = None,
-        year: Optional[int] = None
+        year: Optional[int] = None,
+        subject_id: Optional[int] = None
     ) -> List[SectionType]:
         qs = Section.objects.select_related(
             "course",

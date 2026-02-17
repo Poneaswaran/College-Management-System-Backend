@@ -54,7 +54,7 @@ class GradesMutation:
         user = info.context.request.user
         
         # Check permissions
-        if user.role.name not in ['FACULTY', 'ADMIN', 'SUPER_ADMIN']:
+        if user.role.code not in ['FACULTY', 'ADMIN', 'HOD']:
             return CourseGradeMutationResponse(
                 success=False,
                 message="Only faculty and admins can create grades",
@@ -145,7 +145,7 @@ class GradesMutation:
         user = info.context.request.user
         
         # Check permissions
-        if user.role.name not in ['FACULTY', 'ADMIN', 'SUPER_ADMIN']:
+        if user.role.code not in ['FACULTY', 'ADMIN', 'HOD']:
             return CourseGradeMutationResponse(
                 success=False,
                 message="Only faculty and admins can update grades",
@@ -206,7 +206,7 @@ class GradesMutation:
         user = info.context.request.user
         
         # Check permissions
-        if user.role.name not in ['FACULTY', 'ADMIN', 'SUPER_ADMIN']:
+        if user.role.code not in ['FACULTY', 'ADMIN', 'HOD']:
             return CourseGradeMutationResponse(
                 success=False,
                 message="Only faculty and admins can publish grades",

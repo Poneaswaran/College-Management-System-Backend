@@ -131,7 +131,7 @@ def get_assignment_statistics(assignment):
         dict: Statistics including submission count, graded count, etc.
     """
     from assignment.models import AssignmentSubmission
-    from core.models import StudentProfile
+    from profile_management.models import StudentProfile
     
     # Total students in section
     total_students = StudentProfile.objects.filter(

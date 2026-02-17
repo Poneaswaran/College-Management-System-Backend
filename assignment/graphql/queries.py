@@ -39,7 +39,7 @@ class AssignmentQuery:
             return None
         
         # Check permissions
-        if user.role.name == 'STUDENT':
+        if user.role.code == 'STUDENT':
             # Students can only see published assignments for their section
             from core.models import StudentProfile
             try:
@@ -48,7 +48,7 @@ class AssignmentQuery:
                     return None
             except StudentProfile.DoesNotExist:
                 return None
-        elif user.role.name == 'FACULTY':
+        elif user.role.code == 'FACULTY':
             # Faculty can see assignments they created
             if assignment.created_by.id != user.id:
                 return None
@@ -70,7 +70,7 @@ class AssignmentQuery:
         user = info.context.request.user
         
         # Base query based on user role
-        if user.role.name == 'STUDENT':
+        if user.role.code == 'STUDENT':
             # Students see only published assignments for their section
             from core.models import StudentProfile
             try:
@@ -82,11 +82,11 @@ class AssignmentQuery:
             except StudentProfile.DoesNotExist:
                 return []
         
-        elif user.role.name == 'FACULTY':
+        elif user.role.code == 'FACULTY':
             # Faculty see assignments they created
             assignments = Assignment.objects.filter(created_by=user)
         
-        elif user.role.name in ['ADMIN', 'SUPER_ADMIN']:
+        elif user.role.code in ['ADMIN', 'HOD']:
             # Admin sees all assignments
             assignments = Assignment.objects.all()
         
@@ -115,7 +115,7 @@ class AssignmentQuery:
         """
         user = info.context.request.user
         
-        if user.role.name == 'STUDENT':
+        if user.role.code == 'STUDENT':
             from core.models import StudentProfile
             try:
                 student_profile = StudentProfile.objects.get(user=user)
@@ -124,7 +124,7 @@ class AssignmentQuery:
             except StudentProfile.DoesNotExist:
                 return []
         
-        elif user.role.name == 'FACULTY':
+        elif user.role.code == 'FACULTY':
             assignments = get_faculty_assignments(user)
             return list(assignments)
         
@@ -137,7 +137,7 @@ class AssignmentQuery:
         """
         user = info.context.request.user
         
-        if user.role.name != 'STUDENT':
+        if user.role.code != 'STUDENT':
             raise Exception("Only students can query pending assignments")
         
         from core.models import StudentProfile
@@ -155,7 +155,7 @@ class AssignmentQuery:
         """
         user = info.context.request.user
         
-        if user.role.name != 'STUDENT':
+        if user.role.code != 'STUDENT':
             raise Exception("Only students can query overdue assignments")
         
         from core.models import StudentProfile
@@ -177,7 +177,7 @@ class AssignmentQuery:
         """
         user = info.context.request.user
         
-        if user.role.name not in ['FACULTY', 'ADMIN', 'SUPER_ADMIN']:
+        if user.role.code not in ['FACULTY', 'ADMIN', 'HOD']:
             raise Exception("Only faculty can view all submissions")
         
         try:
@@ -186,7 +186,7 @@ class AssignmentQuery:
             raise Exception("Assignment not found")
         
         # Check if faculty is authorized
-        if user.role.name == 'FACULTY':
+        if user.role.code == 'FACULTY':
             if assignment.created_by.id != user.id:
                 from timetable.models import TimetableEntry
                 teaches = TimetableEntry.objects.filter(
@@ -214,7 +214,7 @@ class AssignmentQuery:
         """
         user = info.context.request.user
         
-        if user.role.name != 'STUDENT':
+        if user.role.code != 'STUDENT':
             raise Exception("Only students can query their submissions")
         
         from core.models import StudentProfile
@@ -241,11 +241,11 @@ class AssignmentQuery:
             return None
         
         # Check permissions
-        if user.role.name == 'STUDENT':
+        if user.role.code == 'STUDENT':
             # Students can only see their own submissions
             if submission.student.user.id != user.id:
                 return None
-        elif user.role.name == 'FACULTY':
+        elif user.role.code == 'FACULTY':
             # Faculty can see submissions for their assignments
             if submission.assignment.created_by.id != user.id:
                 from timetable.models import TimetableEntry
@@ -278,7 +278,7 @@ class AssignmentQuery:
         
         if student_id:
             # Faculty/Admin querying specific student
-            if user.role.name not in ['FACULTY', 'ADMIN', 'SUPER_ADMIN']:
+            if user.role.code not in ['FACULTY', 'ADMIN', 'HOD']:
                 raise Exception("Not authorized")
             
             try:
@@ -287,7 +287,7 @@ class AssignmentQuery:
                 raise Exception("Student not found")
         else:
             # Student querying their own stats
-            if user.role.name != 'STUDENT':
+            if user.role.code != 'STUDENT':
                 raise Exception("Student ID required for non-student users")
             
             try:
@@ -326,7 +326,7 @@ class AssignmentQuery:
         """
         user = info.context.request.user
         
-        if user.role.name not in ['FACULTY', 'ADMIN', 'SUPER_ADMIN']:
+        if user.role.code not in ['FACULTY', 'ADMIN', 'HOD']:
             raise Exception("Only faculty can query pending grading")
         
         # Get assignments created by this faculty

@@ -41,7 +41,7 @@ class AssignmentMutation:
         user = info.context.request.user
         
         # Check if user is faculty
-        if user.role.name not in ['FACULTY', 'ADMIN', 'SUPER_ADMIN']:
+        if user.role.code not in ['FACULTY', 'ADMIN', 'HOD']:
             raise Exception("Only faculty can create assignments")
         
         # Get related objects
@@ -101,6 +101,15 @@ class AssignmentMutation:
                     raise
                 raise Exception(f"File upload error: {str(e)}")
         
+        # Ensure datetimes are timezone-aware
+        due_date = input.due_date
+        if timezone.is_naive(due_date):
+            due_date = timezone.make_aware(due_date)
+        
+        late_submission_deadline = input.late_submission_deadline
+        if late_submission_deadline and timezone.is_naive(late_submission_deadline):
+            late_submission_deadline = timezone.make_aware(late_submission_deadline)
+        
         # Create assignment
         assignment = Assignment.objects.create(
             subject=subject,
@@ -110,11 +119,11 @@ class AssignmentMutation:
             title=input.title,
             description=input.description,
             assignment_type=input.assignment_type,
-            due_date=input.due_date,
+            due_date=due_date,
             max_marks=input.max_marks,
             weightage=input.weightage,
             allow_late_submission=input.allow_late_submission,
-            late_submission_deadline=input.late_submission_deadline,
+            late_submission_deadline=late_submission_deadline,
             status='DRAFT',
             attachment=attachment_file
         )
@@ -140,7 +149,7 @@ class AssignmentMutation:
         
         # Check if user is the creator
         if assignment.created_by.id != user.id:
-            if user.role.name not in ['ADMIN', 'SUPER_ADMIN']:
+            if user.role.code not in ['ADMIN', 'HOD']:
                 raise Exception("Only the creator can update this assignment")
         
         # Handle base64 file upload
@@ -189,7 +198,10 @@ class AssignmentMutation:
             if input.description:
                 assignment.description = input.description
             if input.due_date:
-                assignment.due_date = input.due_date
+                due_date = input.due_date
+                if timezone.is_naive(due_date):
+                    due_date = timezone.make_aware(due_date)
+                assignment.due_date = due_date
             if input.max_marks is not None:
                 assignment.max_marks = input.max_marks
             if input.weightage is not None:
@@ -197,7 +209,10 @@ class AssignmentMutation:
             if input.allow_late_submission is not None:
                 assignment.allow_late_submission = input.allow_late_submission
             if input.late_submission_deadline:
-                assignment.late_submission_deadline = input.late_submission_deadline
+                late_submission_deadline = input.late_submission_deadline
+                if timezone.is_naive(late_submission_deadline):
+                    late_submission_deadline = timezone.make_aware(late_submission_deadline)
+                assignment.late_submission_deadline = late_submission_deadline
         
         assignment.save()
         return assignment
@@ -254,7 +269,7 @@ class AssignmentMutation:
         
         # Check if user is the creator
         if assignment.created_by.id != user.id:
-            if user.role.name not in ['ADMIN', 'SUPER_ADMIN']:
+            if user.role.code not in ['ADMIN', 'HOD']:
                 raise Exception("Only the creator can close this assignment")
         
         # Close
@@ -305,7 +320,7 @@ class AssignmentMutation:
         user = info.context.request.user
         
         # Check if user is student
-        if user.role.name != 'STUDENT':
+        if user.role.code != 'STUDENT':
             raise Exception("Only students can submit assignments")
         
         # Get student profile
@@ -377,7 +392,7 @@ class AssignmentMutation:
         user = info.context.request.user
         
         # Check if user is faculty
-        if user.role.name not in ['FACULTY', 'ADMIN', 'SUPER_ADMIN']:
+        if user.role.code not in ['FACULTY', 'ADMIN', 'HOD']:
             raise Exception("Only faculty can grade assignments")
         
         # Get submission
@@ -452,7 +467,7 @@ class AssignmentMutation:
         user = info.context.request.user
         
         # Check if user is faculty
-        if user.role.name not in ['FACULTY', 'ADMIN', 'SUPER_ADMIN']:
+        if user.role.code not in ['FACULTY', 'ADMIN', 'HOD']:
             raise Exception("Only faculty can return submissions")
         
         # Get submission
@@ -472,7 +487,7 @@ class AssignmentMutation:
                 is_active=True
             ).exists()
             
-            if not teaches and user.role.name not in ['ADMIN', 'SUPER_ADMIN']:
+            if not teaches and user.role.code not in ['ADMIN', 'HOD']:
                 raise Exception("Not authorized to return this submission")
         
         # Return submission

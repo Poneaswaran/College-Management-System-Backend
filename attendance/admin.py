@@ -3,15 +3,76 @@ Admin interface for Attendance System
 """
 from django.contrib import admin
 from django.utils.html import format_html
-from django.urls import reverse
+from django.urls import reverse, path
 from django.utils import timezone
+from datetime import date
+from django.shortcuts import render
+from django.db.models import Count, Q
 from attendance.models import AttendanceSession, StudentAttendance, AttendanceReport
 from attendance.utils import auto_mark_absent_students
+
+
+class TodaySessionFilter(admin.SimpleListFilter):
+    """Filter for today's sessions"""
+    title = 'Today Sessions'
+    parameter_name = 'today'
+    
+    def lookups(self, request, model_admin):
+        return (
+            ('yes', 'Today Only'),
+            ('upcoming', 'Upcoming'),
+            ('past', 'Past'),
+        )
+    
+    def queryset(self, request, queryset):
+        today = date.today()
+        if self.value() == 'yes':
+            return queryset.filter(date=today)
+        if self.value() == 'upcoming':
+            return queryset.filter(date__gte=today)
+        if self.value() == 'past':
+            return queryset.filter(date__lt=today)
+
+
+class ActiveSessionFilter(admin.SimpleListFilter):
+    """Filter for active sessions"""
+    title = 'Active Status'
+    parameter_name = 'is_active'
+    
+    def lookups(self, request, model_admin):
+        return (
+            ('active', 'Currently Active'),
+            ('can_mark', 'Can Mark Attendance'),
+        )
+    
+    def queryset(self, request, queryset):
+        if self.value() == 'active':
+            return queryset.filter(status='ACTIVE')
+        if self.value() == 'can_mark':
+            return queryset.filter(status='ACTIVE', 
+                                   opened_at__isnull=False)
+
+
+class StudentAttendanceInline(admin.TabularInline):
+    """Inline display of student attendances in session admin"""
+    model = StudentAttendance
+    extra = 0
+    can_delete = False
+    
+    fields = ['student', 'status', 'marked_at', 'is_manually_marked']
+    readonly_fields = ['marked_at']
+    autocomplete_fields = ['student']
+    
+    def get_queryset(self, request):
+        """Optimize inline queries"""
+        return super().get_queryset(request).select_related('student', 'marked_by')
 
 
 @admin.register(AttendanceSession)
 class AttendanceSessionAdmin(admin.ModelAdmin):
     """Admin interface for AttendanceSession"""
+    
+    change_list_template = 'admin/attendance/attendancesession_changelist.html'
     
     list_display = [
         'id',
@@ -29,10 +90,13 @@ class AttendanceSessionAdmin(admin.ModelAdmin):
     
     list_filter = [
         'status',
+        TodaySessionFilter,
+        ActiveSessionFilter,
         'date',
         'timetable_entry__subject',
         'timetable_entry__section',
         'timetable_entry__semester',
+        'timetable_entry__faculty',
     ]
     
     search_fields = [
@@ -59,6 +123,8 @@ class AttendanceSessionAdmin(admin.ModelAdmin):
         'opened_by',
         'blocked_by',
     ]
+    
+    inlines = [StudentAttendanceInline]
     
     fieldsets = (
         ('Session Information', {
@@ -165,7 +231,34 @@ class AttendanceSessionAdmin(admin.ModelAdmin):
         return '-'
     time_remaining_display.short_description = 'Time Left'
     
-    actions = ['close_sessions', 'block_sessions']
+    actions = ['close_sessions', 'block_sessions', 'open_sessions', 'reopen_blocked_sessions']
+    
+    def open_sessions(self, request, queryset):
+        """Open selected scheduled sessions"""
+        opened = 0
+        for session in queryset.filter(status='SCHEDULED'):
+            session.status = 'ACTIVE'
+            session.opened_by = request.user
+            session.opened_at = timezone.now()
+            session.save()
+            opened += 1
+        
+        self.message_user(request, f'Opened {opened} session(s)')
+    open_sessions.short_description = 'Open selected sessions'
+    
+    def reopen_blocked_sessions(self, request, queryset):
+        """Reopen blocked/cancelled sessions"""
+        reopened = 0
+        for session in queryset.filter(status__in=['BLOCKED', 'CANCELLED']):
+            session.status = 'SCHEDULED'
+            session.cancellation_reason = ''
+            session.blocked_by = None
+            session.blocked_at = None
+            session.save()
+            reopened += 1
+        
+        self.message_user(request, f'Reopened {reopened} session(s)')
+    reopen_blocked_sessions.short_description = 'Reopen blocked sessions'
     
     def close_sessions(self, request, queryset):
         """Close selected active sessions"""
@@ -196,6 +289,69 @@ class AttendanceSessionAdmin(admin.ModelAdmin):
         
         self.message_user(request, f'Blocked {blocked} session(s)')
     block_sessions.short_description = 'Block selected sessions'
+    
+    def get_urls(self):
+        """Add custom URLs for faculty sessions view"""
+        urls = super().get_urls()
+        custom_urls = [
+            path('faculty-sessions/', 
+                 self.admin_site.admin_view(self.faculty_sessions_view),
+                 name='attendance_faculty_sessions'),
+        ]
+        return custom_urls + urls
+    
+    def faculty_sessions_view(self, request):
+        """Custom view for faculty sessions dashboard"""
+        today = date.today()
+        selected_date = request.GET.get('date', str(today))
+        
+        try:
+            selected_date = date.fromisoformat(selected_date)
+        except ValueError:
+            selected_date = today
+        
+        # Get all sessions for the selected date
+        sessions = AttendanceSession.objects.filter(
+            date=selected_date
+        ).select_related(
+            'timetable_entry__subject',
+            'timetable_entry__section',
+            'timetable_entry__faculty',
+            'timetable_entry__period_definition',
+            'opened_by',
+            'blocked_by'
+        ).order_by(
+            'timetable_entry__faculty__email',
+            'timetable_entry__period_definition__start_time'
+        )
+        
+        # Group sessions by faculty
+        from itertools import groupby
+        sessions_by_faculty = {}
+        for faculty_email, group in groupby(sessions, key=lambda s: s.timetable_entry.faculty):
+            session_list = list(group)
+            faculty_stats = {
+                'faculty': faculty_email,
+                'sessions': session_list,
+                'total': len(session_list),
+                'active': sum(1 for s in session_list if s.status == 'ACTIVE'),
+                'closed': sum(1 for s in session_list if s.status == 'CLOSED'),
+                'scheduled': sum(1 for s in session_list if s.status == 'SCHEDULED'),
+                'blocked': sum(1 for s in session_list if s.status in ['BLOCKED', 'CANCELLED']),
+            }
+            sessions_by_faculty[faculty_email.email or faculty_email.register_number] = faculty_stats
+        
+        context = {
+            **self.admin_site.each_context(request),
+            'title': f'Faculty Sessions - {selected_date.strftime("%B %d, %Y")}',
+            'selected_date': selected_date,
+            'today': today,
+            'sessions_by_faculty': sessions_by_faculty,
+            'total_sessions': sessions.count(),
+            'total_faculty': len(sessions_by_faculty),
+        }
+        
+        return render(request, 'admin/attendance/faculty_sessions.html', context)
 
 
 @admin.register(StudentAttendance)

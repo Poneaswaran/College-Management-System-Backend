@@ -59,7 +59,7 @@ class AttendanceQuery:
         """
         user = info.context.request.user
         
-        if user.role.name != 'FACULTY':
+        if user.role.code != 'FACULTY':
             return []
         
         today = timezone.now().date()
@@ -117,12 +117,12 @@ class AttendanceQuery:
                 has_access = True
         
         # Faculty access
-        if user.role.name == 'FACULTY':
+        if user.role.code == 'FACULTY':
             if session.timetable_entry.faculty.id == user.id:
                 has_access = True
         
         # Admin access
-        if user.role.name in ['ADMIN', 'SUPER_ADMIN']:
+        if user.role.code in ['ADMIN', 'HOD']:
             has_access = True
         
         if not has_access:
@@ -154,14 +154,14 @@ class AttendanceQuery:
                 return []
             
             # Faculty can see students they teach
-            if user.role.name == 'FACULTY':
+            if user.role.code == 'FACULTY':
                 from timetable.models import TimetableEntry
                 teaches_student = TimetableEntry.objects.filter(
                     faculty=user,
                     section__students__id=student_id,
                     is_active=True
                 ).exists()
-                if not teaches_student and user.role.name not in ['ADMIN', 'SUPER_ADMIN']:
+                if not teaches_student and user.role.code not in ['ADMIN', 'HOD']:
                     return []
             
             from profile_management.models import StudentProfile
@@ -222,7 +222,7 @@ class AttendanceQuery:
             has_access = False
             if hasattr(user, 'student_profile') and user.student_profile.id == student_id:
                 has_access = True
-            elif user.role.name in ['ADMIN', 'SUPER_ADMIN']:
+            elif user.role.code in ['ADMIN', 'HOD']:
                 has_access = True
             
             if not has_access:
@@ -285,7 +285,7 @@ class AttendanceQuery:
             has_access = False
             if hasattr(user, 'student_profile') and user.student_profile.id == student_id:
                 has_access = True
-            elif user.role.name in ['ADMIN', 'SUPER_ADMIN']:
+            elif user.role.code in ['ADMIN', 'HOD']:
                 has_access = True
             
             if not has_access:
@@ -331,8 +331,8 @@ class AttendanceQuery:
             return []
         
         # Check access - only faculty teaching or admin
-        if user.role.name not in ['ADMIN', 'SUPER_ADMIN']:
-            if user.role.name != 'FACULTY' or session.timetable_entry.faculty.id != user.id:
+        if user.role.code not in ['ADMIN', 'HOD']:
+            if user.role.code != 'FACULTY' or session.timetable_entry.faculty.id != user.id:
                 return []
         
         attendances = StudentAttendance.objects.filter(
@@ -366,8 +366,8 @@ class AttendanceQuery:
             return []
         
         # Check access
-        if user.role.name not in ['ADMIN', 'SUPER_ADMIN']:
-            if user.role.name != 'FACULTY':
+        if user.role.code not in ['ADMIN', 'HOD']:
+            if user.role.code != 'FACULTY':
                 return []
             
             # Check if faculty teaches this subject
