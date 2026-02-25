@@ -108,30 +108,35 @@ def handle_assignment_save(sender, instance, created, **kwargs):
         logger.error(f"Error in assignment signal receiver: {str(e)}")
 
 
-@receiver(post_save, sender='grades.Grade')
+@receiver(post_save, sender='assignment.AssignmentGrade')
 def handle_grade_save(sender, instance, created, **kwargs):
     """
-    Handle Grade save event (for assignment grades).
-    Creates notification when assignment is graded.
+    Handle AssignmentGrade save event.
+    Creates notification when an assignment submission is graded.
     """
     try:
         # Only notify on new grades
-        if created and hasattr(instance, 'student') and hasattr(instance, 'assignment'):
-            grade_value = instance.grade if hasattr(instance, 'grade') else "N/A"
-            actor = instance.graded_by if hasattr(instance, 'graded_by') else None
+        if created and hasattr(instance, 'submission'):
+            submission = instance.submission
+            student = submission.student if hasattr(submission, 'student') else None
+            assignment = submission.assignment if hasattr(submission, 'assignment') else None
             
-            assignment_services.notify_assignment_graded(
-                student=instance.student,
-                assignment=instance.assignment,
-                grade_value=str(grade_value),
-                actor=actor
-            )
+            if student and assignment:
+                grade_value = str(instance.marks_obtained) if hasattr(instance, 'marks_obtained') else "N/A"
+                actor = instance.graded_by if hasattr(instance, 'graded_by') else None
+                
+                assignment_services.notify_assignment_graded(
+                    student=student,
+                    assignment=assignment,
+                    grade_value=grade_value,
+                    actor=actor
+                )
     
     except Exception as e:
         logger.error(f"Error in grade signal receiver (assignment): {str(e)}")
 
 
-@receiver(post_save, sender='assignment.Submission')
+@receiver(post_save, sender='assignment.AssignmentSubmission')
 def handle_submission_save(sender, instance, created, **kwargs):
     """
     Handle Submission save event.
