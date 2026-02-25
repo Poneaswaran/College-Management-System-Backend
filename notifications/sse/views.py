@@ -12,6 +12,8 @@ from django.utils import timezone
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
+from rest_framework.renderers import BaseRenderer
+from rest_framework.negotiation import BaseContentNegotiation
 from django.conf import settings
 
 from notifications.sse.authentication import SSETokenAuthentication
@@ -20,6 +22,28 @@ from notifications.services.broadcast_service import BroadcastService
 
 
 logger = logging.getLogger(__name__)
+
+
+class EventStreamRenderer(BaseRenderer):
+    """Renderer that handles text/event-stream content type for SSE."""
+    media_type = 'text/event-stream'
+    format = 'text'
+
+    def render(self, data, accepted_media_type=None, renderer_context=None):
+        return data
+
+
+class IgnoreClientContentNegotiation(BaseContentNegotiation):
+    """
+    Skip DRF's Accept header content negotiation for SSE views.
+    EventSource always sends Accept: text/event-stream which DRF
+    doesn't know about, so we bypass negotiation entirely.
+    """
+    def select_parser(self, request, parsers):
+        return parsers[0] if parsers else None
+
+    def select_renderer(self, request, renderers, format_suffix=None):
+        return (renderers[0], renderers[0].media_type)
 
 
 class SSENotificationView(APIView):
@@ -35,6 +59,8 @@ class SSENotificationView(APIView):
     """
     
     authentication_classes = [SSETokenAuthentication]
+    renderer_classes = [EventStreamRenderer]
+    content_negotiation_class = IgnoreClientContentNegotiation
     
     def get(self, request):
         """
@@ -77,7 +103,6 @@ class SSENotificationView(APIView):
         
         # Set SSE headers
         response['Cache-Control'] = 'no-cache'
-        response['Connection'] = 'keep-alive'
         response['X-Accel-Buffering'] = 'no'  # Disable nginx buffering
         
         logger.info(f"SSE connection established for user {user.id} ({connection_id})")
