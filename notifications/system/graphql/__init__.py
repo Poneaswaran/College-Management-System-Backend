@@ -1,0 +1,1 @@
+"""System notifications GraphQL types."""

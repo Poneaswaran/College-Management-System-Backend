@@ -1,0 +1,1 @@
+"""Grades notifications GraphQL types."""

@@ -38,6 +38,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'corsheaders',
+    'rest_framework',
     "strawberry.django",
     "core",
     "profile_management",
@@ -45,6 +46,7 @@ INSTALLED_APPS = [
     "attendance",
     "assignment",
     "grades",
+    "notifications",
 ]
 
 MIDDLEWARE = [
@@ -162,3 +164,22 @@ CORS_ALLOWED_ORIGINS = [
 # CORS_ALLOW_CREDENTIALS = True  
 APPEND_SLASH = False
 USE_TZ = True
+
+# Redis Configuration (for real-time notifications)
+REDIS_URL = 'redis://localhost:6379/0'
+
+# Notification Settings
+NOTIFICATION_SSE_HEARTBEAT_INTERVAL = 30  # seconds
+NOTIFICATION_SSE_MAX_CONNECTIONS_PER_USER = 3
+NOTIFICATION_CLEANUP_DAYS = 90  # auto-delete notifications older than 90 days
+NOTIFICATION_DEFAULT_EXPIRY_HOURS = 168  # 7 days for non-critical notifications
+
+# Django REST Framework (for SSE endpoint)
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'notifications.sse.authentication.SSETokenAuthentication',
+    ],
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.IsAuthenticated',
+    ],
+}

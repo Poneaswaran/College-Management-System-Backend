@@ -1,0 +1,1 @@
+"""Attendance notifications GraphQL types."""
