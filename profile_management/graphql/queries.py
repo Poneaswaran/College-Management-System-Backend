@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from django.db.models import Count, Q
 
 from profile_management.models import StudentProfile, ParentProfile, AcademicYear, Semester
-from .types import StudentProfileType, ParentProfileType
+from .types import StudentProfileType, ParentProfileType, FacultyProfileType
 from core.graphql.auth import require_auth
 from timetable.graphql.types import AcademicYearType, SemesterType
 from assignment.models import Assignment, AssignmentSubmission, AssignmentGrade
@@ -201,6 +201,38 @@ class ProfileQuery:
             
         return qs
     
+    # ==================================================
+    # FACULTY PROFILE QUERIES
+    # ==================================================
+
+    @strawberry.field
+    @require_auth
+    def my_faculty_profile(self, info: Info) -> Optional[FacultyProfileType]:
+        """Get current user's faculty profile"""
+        user = info.context.request.user
+        try:
+            from profile_management.models import FacultyProfile
+            return FacultyProfile.objects.select_related('user', 'department').get(user=user)
+        except Exception:
+            return None
+
+    @strawberry.field
+    @require_auth
+    def faculties(
+        self,
+        info: Info,
+        department_id: Optional[int] = None,
+        designation: Optional[str] = None
+    ) -> List[FacultyProfileType]:
+        """List faculty profiles with optional filters"""
+        from profile_management.models import FacultyProfile
+        qs = FacultyProfile.objects.filter(is_active=True).select_related('user', 'department')
+        if department_id:
+            qs = qs.filter(department_id=department_id)
+        if designation:
+            qs = qs.filter(designation__icontains=designation)
+        return qs
+
     # ==================================================
     # ACADEMIC YEAR QUERIES
     # ==================================================

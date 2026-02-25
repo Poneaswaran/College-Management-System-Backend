@@ -24,15 +24,16 @@
 
 ### 1. Faculty Profile Module
 **Priority:** 🔴 High  
-**Status:** 📋 Planned  
+**Status:** ✅ Implemented  
 **Description:** Create a dedicated `FacultyProfile` model with qualifications, specialization, office hours, and teaching load tracking. Currently faculty are just `User` records with a FACULTY role — no dedicated profile.
 
 **Tasks:**
-- [ ] Create `FacultyProfile` model (qualifications, designation, specialization, joining_date, office_hours, teaching_load)
-- [ ] Create GraphQL types, queries, mutations
-- [ ] Link faculty to subjects they teach
-- [ ] Add faculty availability/office hours query
-- [ ] Add admin mutations for faculty management
+- [x] Create `FacultyProfile` model (qualifications, designation, specialization, joining_date, office_hours, teaching_load)
+- [x] Create GraphQL types, queries, mutations
+- [x] Add faculty availability/office hours query
+- [x] Add admin mutations for faculty management
+- [x] Add Admin config
+
 
 ---
 

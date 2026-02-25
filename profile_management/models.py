@@ -215,6 +215,48 @@ class StudentProfile(models.Model):
 
 
 # ==================================================
+# FACULTY PROFILE
+# ==================================================
+
+class FacultyProfile(models.Model):
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="faculty_profile"
+    )
+    department = models.ForeignKey(
+        'core.Department',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="faculties"
+    )
+    designation = models.CharField(max_length=100, help_text="e.g., Assistant Professor, HOD")
+    qualifications = models.TextField(help_text="e.g., Ph.D. in Computer Science, M.Tech")
+    specialization = models.CharField(max_length=200, help_text="Area of expertise")
+    joining_date = models.DateField()
+    office_hours = models.CharField(max_length=200, blank=True, help_text="e.g., Mon-Wed 2-4 PM")
+    teaching_load = models.PositiveIntegerField(default=0, help_text="Hours per week")
+    
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        ordering = ['-joining_date']
+        indexes = [
+            models.Index(fields=['department', 'is_active']),
+        ]
+
+    def __str__(self):
+        return f"{self.user.first_name} {self.user.last_name} ({self.designation})"
+
+    @property
+    def full_name(self):
+        return f"{self.user.first_name} {self.user.last_name}".strip()
+
+
+# ==================================================
 # PARENT / GUARDIAN PROFILE
 # ==================================================
 

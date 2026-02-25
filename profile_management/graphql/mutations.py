@@ -16,7 +16,7 @@ from django.core.files.base import ContentFile
 from core.models import Role
 
 from profile_management.models import StudentProfile
-from .types import StudentProfileType
+from .types import StudentProfileType, FacultyProfileType
 from profile_management.models import ParentProfile, ParentLoginOTP
 from core.graphql.types import UserType
 from core.graphql.auth import require_auth
@@ -72,6 +72,16 @@ class AdminUpdateStudentProfileInput:
     id_proof_number: Optional[str] = None
 
 
+@strawberry.input
+class UpdateFacultyProfileInput:
+    designation: Optional[str] = None
+    qualifications: Optional[str] = None
+    specialization: Optional[str] = None
+    office_hours: Optional[str] = None
+    teaching_load: Optional[int] = None
+    department_id: Optional[int] = None
+    is_active: Optional[bool] = None
+
 # ==================================================
 # RESPONSE TYPES
 # ==================================================
@@ -81,6 +91,11 @@ class StudentProfileResponse:
     profile: StudentProfileType
     message: str
 
+
+@strawberry.type
+class FacultyProfileResponse:
+    profile: Optional[FacultyProfileType]
+    message: str
 
 @strawberry.type
 class ParentOtpRequestResponse:
@@ -429,3 +444,60 @@ class ProfileMutation:
             refresh_token=refresh_token,
             message="Parent authenticated successfully"
         )
+
+    # ==================================================
+    # FACULTY PROFILE MUTATIONS
+    # ==================================================
+
+    @strawberry.mutation
+    @require_auth
+    def update_faculty_profile(
+        self,
+        info: Info,
+        data: UpdateFacultyProfileInput,
+        user_id: Optional[int] = None
+    ) -> FacultyProfileResponse:
+        """
+        Update faculty profile. 
+        Teachers can update their own profile.
+        HODs/Admins can modify others by passing user_id.
+        """
+        from profile_management.models import FacultyProfile
+        
+        request_user = info.context.request.user
+        
+        target_user = request_user
+        if user_id and getattr(request_user, 'role', None) and request_user.role.code in ['HOD', 'ADMIN']:
+            target_user = User.objects.get(id=user_id)
+        elif user_id and user_id != request_user.id:
+            return FacultyProfileResponse(profile=None, message="Not authorized to edit this profile")
+
+        try:
+            profile = FacultyProfile.objects.get(user=target_user)
+            
+            is_admin = getattr(request_user, 'role', None) and request_user.role.code in ['HOD', 'ADMIN']
+            
+            if data.designation is not None:
+                profile.designation = data.designation
+            if data.qualifications is not None:
+                profile.qualifications = data.qualifications
+            if data.specialization is not None:
+                profile.specialization = data.specialization
+            if data.office_hours is not None:
+                profile.office_hours = data.office_hours
+            if data.teaching_load is not None and is_admin:
+                profile.teaching_load = data.teaching_load
+            if data.department_id is not None and is_admin:
+                profile.department_id = data.department_id
+            if data.is_active is not None and is_admin:
+                profile.is_active = data.is_active
+                
+            profile.save()
+            return FacultyProfileResponse(
+                profile=profile,
+                message="Faculty profile updated successfully"
+            )
+        except FacultyProfile.DoesNotExist:
+            return FacultyProfileResponse(profile=None, message="Faculty profile not found")
+        except Exception as e:
+            return FacultyProfileResponse(profile=None, message=f"Error updating profile: {str(e)}")

@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import StudentProfile, ParentProfile, ParentLoginOTP, AcademicYear, Semester
+from .models import StudentProfile, ParentProfile, ParentLoginOTP, AcademicYear, Semester, FacultyProfile
 
 
 @admin.register(AcademicYear)
@@ -59,3 +59,27 @@ class ParentLoginOTPAdmin(admin.ModelAdmin):
     list_display = ['student', 'code', 'contact', 'created_at', 'expires_at', 'used', 'attempts']
     list_filter = ['used']
     search_fields = ['student__register_number', 'code', 'contact']
+
+
+@admin.register(FacultyProfile)
+class FacultyProfileAdmin(admin.ModelAdmin):
+    list_display = ['full_name', 'designation', 'department', 'teaching_load', 'is_active']
+    list_filter = ['department', 'designation', 'is_active']
+    search_fields = ['user__email', 'user__first_name', 'user__last_name', 'designation']
+    readonly_fields = ['created_at', 'updated_at']
+    autocomplete_fields = ['user', 'department']
+
+    fieldsets = (
+        ('Personal Information', {
+            'fields': ('user', 'department')
+        }),
+        ('Professional Details', {
+            'fields': ('designation', 'qualifications', 'specialization', 'joining_date')
+        }),
+        ('Workload', {
+            'fields': ('office_hours', 'teaching_load')
+        }),
+        ('System Information', {
+            'fields': ('is_active', 'created_at', 'updated_at')
+        }),
+    )
