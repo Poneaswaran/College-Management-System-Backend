@@ -286,6 +286,14 @@ class ExamResultType:
         return self.verified_by
 
     @strawberry.field
+    def subject_name(self) -> str:
+        return self.schedule.subject.name
+
+    @strawberry.field
+    def subject_code(self) -> str:
+        return self.schedule.subject.code
+
+    @strawberry.field
     def student_register_number(self) -> str:
         return self.student.register_number
 
