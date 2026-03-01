@@ -33,7 +33,7 @@ class StudentProfileAdmin(admin.ModelAdmin):
             'fields': ('user', 'first_name', 'last_name', 'phone', 'date_of_birth', 'gender', 'address', 'profile_photo')
         }),
         ('Academic Information', {
-            'fields': ('register_number', 'roll_number', 'department', 'course', 'section', 'year', 'semester', 'admission_date', 'academic_status')
+            'fields': ('register_number', 'roll_number', 'department', 'course', 'section', 'year', 'semester', 'admission_date', 'academic_status', 'current_gpa')
         }),
         ('Guardian Information', {
             'fields': ('guardian_name', 'guardian_relationship', 'guardian_phone', 'guardian_email')

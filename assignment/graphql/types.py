@@ -154,7 +154,7 @@ class AssignmentType:
     @strawberry.field
     def submission_percentage(self) -> float:
         """Get submission percentage"""
-        from core.models import StudentProfile
+        from profile_management.models import StudentProfile
         total_students = StudentProfile.objects.filter(
             section=self.section,
             is_active=True

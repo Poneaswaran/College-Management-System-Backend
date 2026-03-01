@@ -41,7 +41,7 @@ class AssignmentQuery:
         # Check permissions
         if user.role.code == 'STUDENT':
             # Students can only see published assignments for their section
-            from core.models import StudentProfile
+            from profile_management.models import StudentProfile
             try:
                 student_profile = StudentProfile.objects.get(user=user)
                 if assignment.section != student_profile.section or assignment.status == 'DRAFT':
@@ -72,7 +72,7 @@ class AssignmentQuery:
         # Base query based on user role
         if user.role.code == 'STUDENT':
             # Students see only published assignments for their section
-            from core.models import StudentProfile
+            from profile_management.models import StudentProfile
             try:
                 student_profile = StudentProfile.objects.get(user=user)
                 assignments = Assignment.objects.filter(
@@ -116,7 +116,7 @@ class AssignmentQuery:
         user = info.context.request.user
         
         if user.role.code == 'STUDENT':
-            from core.models import StudentProfile
+            from profile_management.models import StudentProfile
             try:
                 student_profile = StudentProfile.objects.get(user=user)
                 assignments = get_active_assignments_for_student(student_profile)
@@ -140,7 +140,7 @@ class AssignmentQuery:
         if user.role.code != 'STUDENT':
             raise Exception("Only students can query pending assignments")
         
-        from core.models import StudentProfile
+        from profile_management.models import StudentProfile
         try:
             student_profile = StudentProfile.objects.get(user=user)
             assignments = get_pending_assignments_for_student(student_profile)
@@ -158,7 +158,7 @@ class AssignmentQuery:
         if user.role.code != 'STUDENT':
             raise Exception("Only students can query overdue assignments")
         
-        from core.models import StudentProfile
+        from profile_management.models import StudentProfile
         try:
             student_profile = StudentProfile.objects.get(user=user)
             assignments = get_overdue_assignments_for_student(student_profile)
@@ -217,7 +217,7 @@ class AssignmentQuery:
         if user.role.code != 'STUDENT':
             raise Exception("Only students can query their submissions")
         
-        from core.models import StudentProfile
+        from profile_management.models import StudentProfile
         try:
             student_profile = StudentProfile.objects.get(user=user)
             submissions = AssignmentSubmission.objects.filter(
@@ -274,7 +274,7 @@ class AssignmentQuery:
         user = info.context.request.user
         
         # Determine which student
-        from core.models import StudentProfile
+        from profile_management.models import StudentProfile
         
         if student_id:
             # Faculty/Admin querying specific student
