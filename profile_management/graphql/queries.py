@@ -7,11 +7,12 @@ from datetime import datetime, timedelta
 from django.db.models import Count, Q
 
 from profile_management.models import StudentProfile, ParentProfile, AcademicYear, Semester
-from .types import StudentProfileType, ParentProfileType
+from .types import StudentProfileType, ParentProfileType, FacultyProfileType
 from core.graphql.auth import require_auth
 from timetable.graphql.types import AcademicYearType, SemesterType
 from assignment.models import Assignment, AssignmentSubmission, AssignmentGrade
-from timetable.models import TimetableEntry
+from timetable.models import TimetableEntry, Subject
+from attendance.models import AttendanceSession, StudentAttendance
 
 
 # ==================================================
@@ -84,6 +85,98 @@ class StudentDashboardType:
     next_class: Optional[NextClassType]
     today_classes: List[NextClassType]
 
+
+# ==================================================
+# FACULTY DASHBOARD TYPES
+# ==================================================
+
+@strawberry.type
+class FacultyTodayClassType:
+    """A class scheduled for today for the faculty"""
+    id: int
+    subject_name: str
+    subject_code: str
+    section_name: str
+    room_number: Optional[str]
+    start_time: str
+    end_time: str
+    period_number: int
+
+
+@strawberry.type
+class FacultyAttendanceOverviewType:
+    """Attendance overview for a subject taught by the faculty (this week)"""
+    subject_name: str
+    subject_code: str
+    attendance_percentage: float
+
+
+@strawberry.type
+class FacultyRecentActivityType:
+    """Recent activity item for faculty dashboard"""
+    id: int
+    activity_type: str  # GRADED_ASSIGNMENT, MARKED_ATTENDANCE
+    title: str
+    description: str
+    timestamp: str
+
+
+@strawberry.type
+class FacultyDashboardType:
+    """Complete faculty dashboard data"""
+    faculty_name: str
+    department_name: Optional[str]
+    # Summary cards
+    total_students: int
+    active_courses: int
+    pending_reviews: int
+    # Today's classes
+    today_classes: List[FacultyTodayClassType]
+    today_class_count: int
+    # Attendance overview (this week)
+    attendance_overview: List[FacultyAttendanceOverviewType]
+    # Recent activity
+    recent_activities: List[FacultyRecentActivityType]
+
+@strawberry.type
+class FacultyCourseType:
+    id: int
+    subject_code: str
+    subject_name: str
+    section_name: str
+    semester_name: str
+    students_count: int
+    assignments_count: int
+    classes_completed: int
+    classes_total: int
+    avg_attendance: float
+    schedule_summary: str
+    room_number: Optional[str]
+
+@strawberry.type
+class FacultyCourseOverviewType:
+    total_courses: int
+    total_students: int
+    avg_attendance: float
+    total_assignments: int
+    courses: List[FacultyCourseType]
+
+@strawberry.type
+class FacultyStudentType:
+    id: int
+    full_name: str
+    email: Optional[str]
+    register_number: str
+    department_name: str
+    semester_section: str
+    attendance_percentage: float
+    gpa: Optional[float]
+    status: str
+
+@strawberry.type
+class FacultyStudentListType:
+    students: List[FacultyStudentType]
+    total_count: int
 
 # ==================================================
 # COURSE ENROLLMENT TYPES
@@ -201,6 +294,38 @@ class ProfileQuery:
             
         return qs
     
+    # ==================================================
+    # FACULTY PROFILE QUERIES
+    # ==================================================
+
+    @strawberry.field
+    @require_auth
+    def my_faculty_profile(self, info: Info) -> Optional[FacultyProfileType]:
+        """Get current user's faculty profile"""
+        user = info.context.request.user
+        try:
+            from profile_management.models import FacultyProfile
+            return FacultyProfile.objects.select_related('user', 'department').get(user=user)
+        except Exception:
+            return None
+
+    @strawberry.field
+    @require_auth
+    def faculties(
+        self,
+        info: Info,
+        department_id: Optional[int] = None,
+        designation: Optional[str] = None
+    ) -> List[FacultyProfileType]:
+        """List faculty profiles with optional filters"""
+        from profile_management.models import FacultyProfile
+        qs = FacultyProfile.objects.filter(is_active=True).select_related('user', 'department')
+        if department_id:
+            qs = qs.filter(department_id=department_id)
+        if designation:
+            qs = qs.filter(designation__icontains=designation)
+        return qs
+
     # ==================================================
     # ACADEMIC YEAR QUERIES
     # ==================================================
@@ -322,7 +447,7 @@ class ProfileQuery:
             ).select_related('assignment', 'assignment__subject').order_by('-submitted_at')[:10]
             
             for submission in recent_submissions:
-                time_ago = self._get_time_ago(submission.submitted_at)
+                time_ago = ProfileQuery._get_time_ago(submission.submitted_at)
                 recent_activities.append(RecentActivityType(
                     id=submission.id,
                     activity_type='SUBMISSION',
@@ -341,7 +466,7 @@ class ProfileQuery:
             ).order_by('-graded_at')[:10]
             
             for grade in recent_grades:
-                time_ago = self._get_time_ago(grade.graded_at)
+                time_ago = ProfileQuery._get_time_ago(grade.graded_at)
                 recent_activities.append(RecentActivityType(
                     id=grade.id,
                     activity_type='GRADE',
@@ -400,30 +525,33 @@ class ProfileQuery:
             # ==================================================
             # CALCULATE GPA
             # ==================================================
-            # Get all graded assignments for the student
-            grades = AssignmentGrade.objects.filter(
-                submission__student=student_profile
-            ).select_related('submission__assignment')
-            
-            if grades.exists():
-                # Calculate weighted average based on assignment weightage
-                total_weighted_score = 0
-                total_weightage = 0
+            if student_profile.current_gpa is not None:
+                current_gpa = float(student_profile.current_gpa)
+            else:
+                # Get all graded assignments for the student as fallback
+                grades = AssignmentGrade.objects.filter(
+                    submission__student=student_profile
+                ).select_related('submission__assignment')
                 
-                for grade in grades:
-                    percentage = float(grade.percentage)
-                    weightage = float(grade.submission.assignment.weightage)
-                    total_weighted_score += (percentage * weightage)
-                    total_weightage += weightage
-                
-                # Convert to GPA (assuming 100% = 4.0)
-                if total_weightage > 0:
-                    avg_percentage = total_weighted_score / total_weightage
-                    current_gpa = round((avg_percentage / 100) * 4.0, 2)
+                if grades.exists():
+                    # Calculate weighted average based on assignment weightage
+                    total_weighted_score = 0
+                    total_weightage = 0
+                    
+                    for grade in grades:
+                        percentage = float(grade.percentage)
+                        weightage = float(grade.submission.assignment.weightage)
+                        total_weighted_score += (percentage * weightage)
+                        total_weightage += weightage
+                    
+                    # Convert to GPA (assuming 100% = 4.0)
+                    if total_weightage > 0:
+                        avg_percentage = total_weighted_score / total_weightage
+                        current_gpa = round((avg_percentage / 100) * 4.0, 2)
+                    else:
+                        current_gpa = None
                 else:
                     current_gpa = None
-            else:
-                current_gpa = None
             
             # ==================================================
             # NEXT CLASS & TODAY'S CLASSES
@@ -526,7 +654,8 @@ class ProfileQuery:
         except StudentProfile.DoesNotExist:
             return None
     
-    def _get_time_ago(self, dt: datetime) -> str:
+    @staticmethod
+    def _get_time_ago(dt: datetime) -> str:
         """Convert datetime to human-readable time ago string"""
         now = timezone.now()
         diff = now - dt
@@ -791,4 +920,470 @@ class ProfileQuery:
             )
             
         except StudentProfile.DoesNotExist:
+            return None
+
+    # ==================================================
+    # FACULTY DASHBOARD
+    # ==================================================
+
+    @strawberry.field
+    @require_auth
+    def faculty_dashboard(self, info: Info) -> Optional[FacultyDashboardType]:
+        """
+        Get comprehensive dashboard data for a faculty member.
+        Shows: summary cards, today's classes, attendance overview, recent activity.
+        Uses the currently authenticated user.
+        """
+        user = info.context.request.user
+
+        # Ensure the user is a faculty member
+        if user.role.code not in ('FACULTY', 'HOD', 'ADMIN'):
+            return None
+
+        try:
+            from profile_management.models import FacultyProfile
+            try:
+                faculty_profile = FacultyProfile.objects.select_related(
+                    'user', 'department'
+                ).get(user=user)
+                faculty_name = faculty_profile.full_name or user.email or 'Faculty'
+                department_name = faculty_profile.department.name if faculty_profile.department else None
+            except FacultyProfile.DoesNotExist:
+                faculty_name = user.email or 'Faculty'
+                department_name = user.department.name if user.department else None
+
+            now = timezone.now()
+            today = now.date()
+            current_day = now.isoweekday()  # 1=Monday … 7=Sunday
+
+            # Get current semester
+            current_semester = Semester.objects.filter(is_current=True).first()
+
+            # ──────────────────────────────────────────────
+            # FACULTY'S TIMETABLE ENTRIES (current semester)
+            # ──────────────────────────────────────────────
+            faculty_entries_qs = TimetableEntry.objects.filter(
+                faculty=user,
+                is_active=True,
+            )
+            if current_semester:
+                faculty_entries_qs = faculty_entries_qs.filter(semester=current_semester)
+
+            faculty_entries = faculty_entries_qs.select_related(
+                'subject', 'section', 'section__course',
+                'room', 'period_definition', 'semester'
+            )
+
+            # ──────────────────────────────────────────────
+            # SUMMARY CARDS
+            # ──────────────────────────────────────────────
+            # Total Students – count of unique students across all sections the faculty teaches
+            section_ids = faculty_entries.values_list('section_id', flat=True).distinct()
+            total_students = StudentProfile.objects.filter(
+                section_id__in=section_ids,
+                academic_status='ACTIVE'
+            ).count()
+
+            # Active Courses – number of distinct subjects
+            active_courses = faculty_entries.values('subject_id').distinct().count()
+
+            # Pending Reviews – assignment submissions awaiting grading
+            faculty_assignments = Assignment.objects.filter(created_by=user)
+            if current_semester:
+                faculty_assignments = faculty_assignments.filter(semester=current_semester)
+            pending_reviews = AssignmentSubmission.objects.filter(
+                assignment__in=faculty_assignments,
+                status__in=['SUBMITTED', 'RESUBMITTED']
+            ).count()
+
+            # ──────────────────────────────────────────────
+            # TODAY'S CLASSES
+            # ──────────────────────────────────────────────
+            today_entries = faculty_entries.filter(
+                period_definition__day_of_week=current_day
+            ).order_by('period_definition__start_time')
+
+            today_classes = []
+            for entry in today_entries:
+                today_classes.append(FacultyTodayClassType(
+                    id=entry.id,
+                    subject_name=entry.subject.name,
+                    subject_code=entry.subject.code,
+                    section_name=str(entry.section),
+                    room_number=entry.room.room_number if entry.room else None,
+                    start_time=entry.period_definition.start_time.strftime('%I:%M %p'),
+                    end_time=entry.period_definition.end_time.strftime('%I:%M %p'),
+                    period_number=entry.period_definition.period_number,
+                ))
+
+            # ──────────────────────────────────────────────
+            # ATTENDANCE OVERVIEW (this week)
+            # ──────────────────────────────────────────────
+            week_start = today - timedelta(days=today.weekday())  # Monday
+            week_end = week_start + timedelta(days=6)  # Sunday
+
+            # Get distinct subjects taught by this faculty
+            taught_subject_ids = (
+                faculty_entries.values_list('subject_id', flat=True).distinct()
+            )
+            taught_subjects = Subject.objects.filter(id__in=taught_subject_ids)
+
+            attendance_overview = []
+            for subject in taught_subjects:
+                # All sessions for this subject taught by this faculty this week
+                sessions = AttendanceSession.objects.filter(
+                    timetable_entry__faculty=user,
+                    timetable_entry__subject=subject,
+                    date__gte=week_start,
+                    date__lte=week_end,
+                    status__in=['CLOSED', 'BLOCKED']
+                )
+                total_records = StudentAttendance.objects.filter(
+                    session__in=sessions
+                ).count()
+                present_records = StudentAttendance.objects.filter(
+                    session__in=sessions,
+                    status__in=['PRESENT', 'LATE']
+                ).count()
+
+                pct = (present_records / total_records * 100) if total_records > 0 else 0.0
+                attendance_overview.append(FacultyAttendanceOverviewType(
+                    subject_name=subject.name,
+                    subject_code=subject.code,
+                    attendance_percentage=round(pct, 1),
+                ))
+
+            # ──────────────────────────────────────────────
+            # RECENT ACTIVITY
+            # ──────────────────────────────────────────────
+            recent_activities: list[FacultyRecentActivityType] = []
+
+            # Recent graded assignments (last 10)
+            recent_grades = AssignmentGrade.objects.filter(
+                graded_by=user
+            ).select_related(
+                'submission__assignment',
+                'submission__assignment__subject',
+                'submission__student'
+            ).order_by('-graded_at')[:10]
+
+            for grade in recent_grades:
+                time_ago = ProfileQuery._get_time_ago(grade.graded_at)
+                sub_count = AssignmentSubmission.objects.filter(
+                    assignment=grade.submission.assignment,
+                    grade__graded_by=user
+                ).count()
+                recent_activities.append(FacultyRecentActivityType(
+                    id=grade.id,
+                    activity_type='GRADED_ASSIGNMENT',
+                    title=f"Graded Assignment – {grade.submission.assignment.subject.name}",
+                    description=f"Graded {sub_count} submissions • {time_ago}",
+                    timestamp=time_ago,
+                ))
+
+            # Recent attendance sessions marked (last 10)
+            recent_sessions = AttendanceSession.objects.filter(
+                timetable_entry__faculty=user,
+                status__in=['CLOSED', 'BLOCKED'],
+                closed_at__isnull=False
+            ).select_related(
+                'timetable_entry__subject'
+            ).order_by('-closed_at')[:10]
+
+            for session in recent_sessions:
+                time_ago = ProfileQuery._get_time_ago(session.closed_at)
+                recent_activities.append(FacultyRecentActivityType(
+                    id=session.id,
+                    activity_type='MARKED_ATTENDANCE',
+                    title=f"Marked Attendance – {session.timetable_entry.subject.name}",
+                    description=f"{session.present_count}/{session.total_students} present • {time_ago}",
+                    timestamp=time_ago,
+                ))
+
+            # Sort and limit
+            recent_activities.sort(key=lambda x: x.timestamp)
+            recent_activities = recent_activities[:10]
+
+            # ──────────────────────────────────────────────
+            # BUILD RESPONSE
+            # ──────────────────────────────────────────────
+            return FacultyDashboardType(
+                faculty_name=faculty_name,
+                department_name=department_name,
+                total_students=total_students,
+                active_courses=active_courses,
+                pending_reviews=pending_reviews,
+                today_classes=today_classes,
+                today_class_count=len(today_classes),
+                attendance_overview=attendance_overview,
+                recent_activities=recent_activities,
+            )
+
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            return None
+
+    @strawberry.field
+    @require_auth
+    def faculty_courses(self, info: Info, semester_id: Optional[int] = None) -> Optional[FacultyCourseOverviewType]:
+        """
+        Get courses taught by faculty along with high-level statistics
+        """
+        user = info.context.request.user
+        if user.role.code not in ('FACULTY', 'HOD', 'ADMIN'):
+            return None
+
+        try:
+            # 1. Base Query
+            faculty_entries_qs = TimetableEntry.objects.filter(
+                faculty=user,
+                is_active=True
+            ).select_related(
+                'subject', 'section', 'semester', 'room', 'period_definition'
+            )
+
+            if semester_id:
+                faculty_entries_qs = faculty_entries_qs.filter(semester_id=semester_id)
+            else:
+                current_semester = Semester.objects.filter(is_current=True).first()
+                if current_semester:
+                    faculty_entries_qs = faculty_entries_qs.filter(semester=current_semester)
+
+            # 2. Extract unique courses (Subject + Section combination)
+            course_map = {}  # key: (subject.id, section.id), value: dict of info
+            for entry in faculty_entries_qs:
+                key = (entry.subject.id, entry.section.id)
+                if key not in course_map:
+                    course_map[key] = {
+                        'subject': entry.subject,
+                        'section': entry.section,
+                        'semester': entry.semester,
+                        'entries': []
+                    }
+                course_map[key]['entries'].append(entry)
+
+            # 3. Aggregate data
+            total_students_set = set()
+            total_assignments = 0
+            
+            courses_list = []
+            
+            # For calculating overall avg attendance across all courses
+            global_attendance_present = 0
+            global_attendance_total = 0
+
+            # Day name mapping
+            day_names = {1: 'Mon', 2: 'Tue', 3: 'Wed', 4: 'Thu', 5: 'Fri', 6: 'Sat', 7: 'Sun'}
+
+            for key, data in course_map.items():
+                subject = data['subject']
+                section = data['section']
+                semester = data['semester']
+                entries = data['entries']
+                
+                # Students count for this course
+                students_qs = StudentProfile.objects.filter(section=section, academic_status='ACTIVE')
+                students_count = students_qs.count()
+                for s_id in students_qs.values_list('id', flat=True):
+                    total_students_set.add(s_id)
+                
+                # Assignments count
+                course_assignments = Assignment.objects.filter(
+                    subject=subject, section=section, created_by=user, semester=semester
+                ).count()
+                total_assignments += course_assignments
+
+                # Calculate class progress & attendance
+                # We need AttendanceSession for this subject/section/faculty
+                sessions = AttendanceSession.objects.filter(
+                    timetable_entry__faculty=user,
+                    timetable_entry__subject=subject,
+                    timetable_entry__section=section,
+                    timetable_entry__semester=semester,
+                    status__in=['CLOSED', 'BLOCKED']
+                )
+                classes_completed = sessions.filter(status='CLOSED').count()
+                # Estimate total classes: typically based on timetable entries per week * weeks in semester.
+                # Here we just use a baseline mapping or fake total since semester config might vary.
+                # Assuming ~16 weeks * entries per week.
+                classes_total = len(entries) * 16
+                
+                # Fetch attendance counts
+                attendance_total = StudentAttendance.objects.filter(session__in=sessions).count()
+                attendance_present = StudentAttendance.objects.filter(session__in=sessions, status__in=['PRESENT', 'LATE']).count()
+                
+                if attendance_total > 0:
+                    avg_attendance = (attendance_present / attendance_total) * 100
+                else:
+                    avg_attendance = 0.0
+
+                global_attendance_present += attendance_present
+                global_attendance_total += attendance_total
+
+                # Schedule summary (e.g. "Mon, Wed, Fri - 9:00 AM")
+                # Group by start time to make short string
+                time_groups = {}
+                for e in entries:
+                    t = e.period_definition.start_time.strftime('%I:%M %p')
+                    day = day_names.get(e.period_definition.day_of_week, '')
+                    if t not in time_groups:
+                        time_groups[t] = []
+                    if day not in time_groups[t]:
+                        time_groups[t].append(day)
+                
+                schedule_summaries = []
+                for t, days in time_groups.items():
+                    schedule_summaries.append(f"{', '.join(days)} - {t}")
+                schedule_summary = " | ".join(schedule_summaries)
+
+                # Room number (take the first room from entries)
+                room_number = None
+                for e in entries:
+                    if e.room:
+                        room_number = e.room.room_number
+                        break
+
+                courses_list.append(FacultyCourseType(
+                    id=subject.id,
+                    subject_code=subject.code,
+                    subject_name=subject.name,
+                    section_name=f"Section {section.name}",
+                    semester_name=f"{semester.academic_year.year_code} Sem {semester.get_number_display()}",
+                    students_count=students_count,
+                    assignments_count=course_assignments,
+                    classes_completed=classes_completed,
+                    classes_total=max(classes_total, classes_completed), # avoid x/0 logic issues
+                    avg_attendance=round(avg_attendance, 1),
+                    schedule_summary=schedule_summary,
+                    room_number=room_number
+                ))
+
+            # Final global totals
+            total_courses = len(courses_list)
+            total_students = len(total_students_set)
+            
+            global_avg_attendance = 0.0
+            if global_attendance_total > 0:
+                global_avg_attendance = round((global_attendance_present / global_attendance_total) * 100, 1)
+
+            return FacultyCourseOverviewType(
+                total_courses=total_courses,
+                total_students=total_students,
+                avg_attendance=global_avg_attendance,
+                total_assignments=total_assignments,
+                courses=courses_list
+            )
+
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            return None
+
+    @strawberry.field
+    @require_auth
+    def faculty_students(
+        self,
+        info: Info,
+        search: Optional[str] = None,
+        department_id: Optional[int] = None,
+        page: int = 1,
+        page_size: int = 10
+    ) -> Optional[FacultyStudentListType]:
+        """
+        Get list of students taught by the faculty, with optional filtering and pagination
+        """
+        user = info.context.request.user
+        if user.role.code not in ('FACULTY', 'HOD', 'ADMIN'):
+            return None
+
+        try:
+            from django.db.models import Q
+            from profile_management.models import StudentProfile, Semester
+            from timetable.models import TimetableEntry
+            from attendance.models import AttendanceSession, StudentAttendance
+
+            current_semester = Semester.objects.filter(is_current=True).first()
+            if not current_semester:
+                return FacultyStudentListType(students=[], total_count=0)
+
+            # Find all sections the faculty teaches this semester
+            faculty_sections = TimetableEntry.objects.filter(
+                faculty=user,
+                is_active=True,
+                semester=current_semester
+            ).values_list('section_id', flat=True).distinct()
+
+            # Base query: students in those sections
+            qs = StudentProfile.objects.filter(section_id__in=faculty_sections).select_related(
+                'user', 'department', 'section', 'course'
+            ).distinct()
+
+            # Apply filters
+            if search:
+                qs = qs.filter(
+                    Q(first_name__icontains=search) |
+                    Q(last_name__icontains=search) |
+                    Q(register_number__icontains=search) |
+                    Q(user__email__icontains=search)
+                )
+
+            if department_id:
+                qs = qs.filter(department_id=department_id)
+
+            total_count = qs.count()
+
+            # Apply ordering
+            qs = qs.order_by('first_name', 'last_name')
+
+            # Pagination
+            offset = (page - 1) * page_size
+            students_page = qs[offset:offset + page_size]
+
+            # Collect results
+            students_list = []
+            
+            for student in students_page:
+                # Calculate attendance (overall for student this semester)
+                sessions = AttendanceSession.objects.filter(
+                    timetable_entry__section=student.section,
+                    timetable_entry__semester=current_semester,
+                    status__in=['CLOSED', 'BLOCKED']
+                )
+                total_classes = sessions.filter(status='CLOSED').count()
+                
+                attendance_present = StudentAttendance.objects.filter(
+                    student=student,
+                    session__in=sessions,
+                    status__in=['PRESENT', 'LATE']
+                ).count()
+                
+                if total_classes > 0:
+                    att_pct = round((attendance_present / total_classes) * 100, 1)
+                else:
+                    att_pct = 0.0
+                    
+                section_name = student.section.name if student.section else "?"
+                semester_section = f"Sem {student.semester} - {section_name}"
+
+                students_list.append(FacultyStudentType(
+                    id=student.id,
+                    full_name=student.full_name,
+                    email=student.user.email if hasattr(student, 'user') and student.user else None,
+                    register_number=student.register_number,
+                    department_name=student.department.name if student.department else "Unknown",
+                    semester_section=semester_section,
+                    attendance_percentage=att_pct,
+                    gpa=float(student.current_gpa) if student.current_gpa is not None else 0.0,
+                    status=student.academic_status
+                ))
+
+            return FacultyStudentListType(
+                students=students_list,
+                total_count=total_count
+            )
+
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
             return None

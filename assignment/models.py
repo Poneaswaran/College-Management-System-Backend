@@ -208,7 +208,7 @@ class Assignment(models.Model):
     @property
     def pending_submissions(self):
         """Get number of pending submissions"""
-        from core.models import StudentProfile
+        from profile_management.models import StudentProfile
         total_students = StudentProfile.objects.filter(
             section=self.section,
             is_active=True

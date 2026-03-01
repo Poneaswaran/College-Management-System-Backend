@@ -3,7 +3,7 @@ import strawberry
 from typing import Optional
 from datetime import date, datetime
 
-from profile_management.models import StudentProfile, ParentProfile
+from profile_management.models import StudentProfile, ParentProfile, FacultyProfile
 from core.graphql.types import DepartmentType, CourseType, SectionType, UserType
 
 
@@ -69,3 +69,25 @@ class ParentProfileType:
     phone_number: str
     student: StudentProfileType
     user: UserType
+
+
+@strawberry.type
+class FacultyProfileType:
+    id: int
+    designation: str
+    qualifications: str
+    specialization: str
+    joining_date: date
+    office_hours: str
+    teaching_load: int
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+    
+    department: Optional[DepartmentType]
+    user: UserType
+
+    @strawberry.field
+    def full_name(self) -> str:
+        return f"{self.user.first_name} {self.user.last_name}".strip()
+

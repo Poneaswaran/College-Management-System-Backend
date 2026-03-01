@@ -17,12 +17,20 @@ def get_active_assignments_for_student(student_profile):
         QuerySet of Assignment
     """
     from assignment.models import Assignment
+    from profile_management.models import Semester
     
-    return Assignment.objects.filter(
+    # Get the current semester (model instance, not the integer on student profile)
+    current_semester = Semester.objects.filter(is_current=True).first()
+    
+    qs = Assignment.objects.filter(
         section=student_profile.section,
-        semester=student_profile.semester,
         status='PUBLISHED'
-    ).select_related(
+    )
+    
+    if current_semester:
+        qs = qs.filter(semester=current_semester)
+    
+    return qs.select_related(
         'subject',
         'section',
         'created_by'
@@ -190,7 +198,10 @@ def get_student_assignment_statistics(student_profile, semester=None):
     if semester:
         assignments = assignments.filter(semester=semester)
     else:
-        assignments = assignments.filter(semester=student_profile.semester)
+        from profile_management.models import Semester as SemesterModel
+        current_sem = SemesterModel.objects.filter(is_current=True).first()
+        if current_sem:
+            assignments = assignments.filter(semester=current_sem)
     
     total_assignments = assignments.count()
     

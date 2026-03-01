@@ -14,6 +14,8 @@ from grades.graphql.queries import GradesQuery
 from grades.graphql.mutations import GradesMutation
 from notifications.graphql.queries import NotificationQuery
 from notifications.graphql.mutations import NotificationMutation
+from exams.graphql.queries import ExamQuery
+from exams.graphql.mutations import ExamMutation
 
 # ==================================================
 # MERGED SCHEMA
@@ -21,13 +23,13 @@ from notifications.graphql.mutations import NotificationMutation
 
 # Merge queries from core, profile_management, timetable, attendance, assignment, grades, and notifications apps
 @strawberry.type
-class Query(CoreQuery, ProfileQuery, TimetableQuery, AttendanceQuery, AssignmentQuery, GradesQuery, NotificationQuery):
+class Query(CoreQuery, ProfileQuery, TimetableQuery, AttendanceQuery, AssignmentQuery, GradesQuery, NotificationQuery, ExamQuery):
     pass
 
 
 # Merge mutations from core, profile_management, timetable, attendance, assignment, grades, and notifications apps
 @strawberry.type
-class Mutation(CoreMutation, ProfileMutation, TimetableMutation, AttendanceMutation, AssignmentMutation, GradesMutation, NotificationMutation):
+class Mutation(CoreMutation, ProfileMutation, TimetableMutation, AttendanceMutation, AssignmentMutation, GradesMutation, NotificationMutation, ExamMutation):
     pass
 
 

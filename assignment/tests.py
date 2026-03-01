@@ -5,7 +5,8 @@ from django.test import TestCase
 from django.utils import timezone
 from datetime import timedelta
 
-from core.models import User, Role, Department, Section, StudentProfile
+from core.models import User, Role, Department, Section
+from profile_management.models import StudentProfile
 from timetable.models import Subject
 from profile_management.models import Semester, AcademicYear
 from assignment.models import Assignment, AssignmentSubmission, AssignmentGrade

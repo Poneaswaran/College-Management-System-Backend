@@ -325,7 +325,7 @@ class AssignmentMutation:
         
         # Get student profile
         try:
-            from core.models import StudentProfile
+            from profile_management.models import StudentProfile
             student_profile = StudentProfile.objects.get(user=user)
         except StudentProfile.DoesNotExist:
             raise Exception("Student profile not found")
