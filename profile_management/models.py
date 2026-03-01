@@ -224,6 +224,8 @@ class FacultyProfile(models.Model):
         on_delete=models.CASCADE,
         related_name="faculty_profile"
     )
+    first_name = models.CharField(max_length=100, null=True, blank=True)
+    last_name = models.CharField(max_length=100, null=True, blank=True)
     department = models.ForeignKey(
         'core.Department',
         on_delete=models.SET_NULL,
@@ -249,11 +251,14 @@ class FacultyProfile(models.Model):
         ]
 
     def __str__(self):
-        return f"{self.user.first_name} {self.user.last_name} ({self.designation})"
+        name = self.full_name
+        return f"{name} ({self.designation})"
 
     @property
     def full_name(self):
-        return f"{self.user.first_name} {self.user.last_name}".strip()
+        if self.first_name:
+            return f"{self.first_name} {self.last_name or ''}".strip()
+        return self.user.email.split('@')[0] if self.user.email else "Faculty"
 
 
 # ==================================================
