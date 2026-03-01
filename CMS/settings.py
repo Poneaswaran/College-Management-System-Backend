@@ -159,6 +159,12 @@ CORS_ALLOWED_ORIGINS = [
     "http://26.109.141.42:8000",
     "http://26.195.175.71:5174",
     "http://localhost:3000",
+    "https://college-management-system-backend-64g7.onrender.com",
+]
+
+CSRF_TRUSTED_ORIGINS = [
+    "https://college-management-system-backend-64g7.onrender.com",
+    "http://localhost:3000",
 ]
 
 # If your frontend needs cookies/auth credentials, enable this:
