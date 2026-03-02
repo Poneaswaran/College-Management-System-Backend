@@ -13,6 +13,11 @@ from attendance.graphql.types import (
     StudentAttendanceType,
     AttendanceReportType
 )
+from attendance.graphql.hod_types import (
+    HODAttendanceReportData,
+    StudentAttendanceDetail,
+    ClassAttendanceDetail
+)
 from core.graphql.auth import require_auth
 
 
@@ -391,3 +396,67 @@ class AttendanceQuery:
         ).order_by('attendance_percentage')
         
         return list(reports)
+    
+    # ==================== HOD Attendance Reports ====================
+    
+    @strawberry.field
+    @require_auth
+    def hod_attendance_report(
+        self,
+        info: Info,
+        department_id: Optional[int] = None,
+        semester_id: Optional[int] = None,
+        subject_id: Optional[int] = None,
+        period_number: Optional[int] = None,
+        date_from: Optional[str] = None,
+        date_to: Optional[str] = None
+    ) -> HODAttendanceReportData:
+        """
+        Returns a full attendance report for the HOD's department.
+        Supports filtering by semester, subject, period, and date range.
+        """
+        from attendance.graphql.hod_queries import HODAttendanceQuery
+        hod_query = HODAttendanceQuery()
+        return hod_query.hod_attendance_report(
+            info, department_id, semester_id, subject_id, period_number, date_from, date_to
+        )
+    
+    @strawberry.field
+    @require_auth
+    def hod_student_attendance_detail(
+        self,
+        info: Info,
+        student_id: int,
+        semester_id: Optional[int] = None,
+        date_from: Optional[str] = None,
+        date_to: Optional[str] = None
+    ) -> StudentAttendanceDetail:
+        """
+        Drill-down for a single student showing per-subject breakdown
+        and period-level records.
+        """
+        from attendance.graphql.hod_queries import HODAttendanceQuery
+        hod_query = HODAttendanceQuery()
+        return hod_query.hod_student_attendance_detail(
+            info, student_id, semester_id, date_from, date_to
+        )
+    
+    @strawberry.field
+    @require_auth
+    def hod_class_attendance_detail(
+        self,
+        info: Info,
+        section_id: int,
+        semester_id: Optional[int] = None,
+        subject_id: Optional[int] = None,
+        date_from: Optional[str] = None,
+        date_to: Optional[str] = None
+    ) -> ClassAttendanceDetail:
+        """
+        Drill-down for a class/section showing all students and subject breakdown.
+        """
+        from attendance.graphql.hod_queries import HODAttendanceQuery
+        hod_query = HODAttendanceQuery()
+        return hod_query.hod_class_attendance_detail(
+            info, section_id, semester_id, subject_id, date_from, date_to
+        )

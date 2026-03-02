@@ -11,6 +11,7 @@ from grades.models import CourseGrade, SemesterGPA, StudentCGPA
 from profile_management.models import StudentProfile, Semester
 from .types import CourseGradeType, SemesterGPAType, StudentCGPAType
 from core.graphql.auth import require_auth
+from .faculty_queries import FacultyGradesQuery
 
 
 # ==================================================
@@ -38,8 +39,8 @@ class ExportGradesType:
 
 
 @strawberry.type
-class GradesQuery:
-    """Grades-related queries"""
+class GradesQuery(FacultyGradesQuery):
+    """Grades-related queries (includes faculty grade submission queries)"""
     
     @strawberry.field
     @require_auth

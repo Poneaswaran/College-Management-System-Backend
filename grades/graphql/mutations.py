@@ -11,6 +11,7 @@ from profile_management.models import StudentProfile, Semester
 from timetable.models import Subject
 from .types import CourseGradeType
 from core.graphql.auth import require_auth
+from .faculty_mutations import FacultyGradesMutation
 
 
 @strawberry.input
@@ -38,8 +39,8 @@ class CourseGradeMutationResponse:
 
 
 @strawberry.type
-class GradesMutation:
-    """Grades-related mutations"""
+class GradesMutation(FacultyGradesMutation):
+    """Grades-related mutations (includes faculty grade submission mutations)"""
     
     @strawberry.mutation
     @require_auth
