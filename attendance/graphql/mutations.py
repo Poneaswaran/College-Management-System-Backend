@@ -363,7 +363,7 @@ class AttendanceMutation:
                 'is_manually_marked': True,
                 'marked_by': user,
                 'marked_at': timezone.now(),
-                'notes': input.notes or f"Manually marked {input.status.lower()} by {user.get_full_name()}"
+                'notes': input.notes or f"Manually marked {input.status.lower()} by {getattr(getattr(user, 'faculty_profile', None), 'full_name', None) or user.email or user.register_number or 'Faculty'}"
             }
         )
         
@@ -412,7 +412,7 @@ class AttendanceMutation:
                 student = StudentProfile.objects.get(id=student_id)
                 
                 # Verify student is in section
-                if not session.timetable_entry.section.students.filter(id=student_id).exists():
+                if not session.timetable_entry.section.student_profiles.filter(id=student_id).exists():
                     continue
                 
                 # Create/update attendance
@@ -424,7 +424,7 @@ class AttendanceMutation:
                         'is_manually_marked': True,
                         'marked_by': user,
                         'marked_at': timezone.now(),
-                        'notes': f"Bulk marked present by {user.get_full_name()}"
+                        'notes': f"Bulk marked present by {getattr(getattr(user, 'faculty_profile', None), 'full_name', None) or user.email or user.register_number or 'Faculty'}"
                     }
                 )
                 attendances.append(attendance)

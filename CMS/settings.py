@@ -162,6 +162,8 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "https://college-management-system-backend-64g7.onrender.com",
     "http://192.168.3.47:3000",
+    "http://192.168.1.10:3000",
+    "http://192.168.1.6:3000",
 ]
 
 CSRF_TRUSTED_ORIGINS = [

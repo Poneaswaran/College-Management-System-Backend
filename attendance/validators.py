@@ -154,7 +154,7 @@ class AttendanceValidator:
         
         # Check if student belongs to section
         section = session.timetable_entry.section
-        if not section.students.filter(id=student_profile.id).exists():
+        if not section.student_profiles.filter(id=student_profile.id).exists():
             return False, "Student is not enrolled in this section"
         
         # Check if session is blocked
@@ -228,7 +228,7 @@ class AttendanceReportValidator:
             teaches_student = TimetableEntry.objects.filter(
                 subject=subject,
                 faculty=requesting_user,
-                section__students=student_profile,
+                section__student_profiles=student_profile,
                 is_active=True
             ).exists()
             

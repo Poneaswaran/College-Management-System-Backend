@@ -27,17 +27,17 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(f'✓ Using semester: {semester.academic_year.year_code} - Semester {semester.number}'))
         self.stdout.write('')
         
-        # Get timetable entries
-        timetable_entries = TimetableEntry.objects.filter(
+        # Check if any timetable entries exist
+        has_entries = TimetableEntry.objects.filter(
             semester=semester,
             is_active=True
-        ).select_related('subject', 'section', 'faculty', 'period_definition')[:5]
+        ).exists()
         
-        if not timetable_entries.exists():
+        if not has_entries:
             self.stdout.write(self.style.ERROR('✗ No timetable entries found! Please create timetable entries first.'))
             return
         
-        self.stdout.write(f'Found {timetable_entries.count()} timetable entries')
+        self.stdout.write('Found timetable entries, proceeding to seed...')
         self.stdout.write('')
         
         # Create attendance sessions for the past week
@@ -45,16 +45,27 @@ class Command(BaseCommand):
         sessions_created = 0
         attendances_created = 0
         
-        for days_ago in range(7, 0, -1):
+        for days_ago in range(7, -1, -1):
             date = today - timedelta(days=days_ago)
             day_of_week = date.isoweekday()
             
             self.stdout.write(f'Creating sessions for {date.strftime("%A, %B %d, %Y")}...')
             
+            # Fetch up to 2 timetable entries for this specific day
+            timetable_entries = list(TimetableEntry.objects.filter(
+                semester=semester,
+                is_active=True,
+                period_definition__day_of_week=day_of_week
+            ).select_related('subject', 'section', 'faculty', 'period_definition')[:2])
+            
+            from core.models import User
+            faculty_user = User.objects.filter(email='faculty@gmail.com').first()
+            if faculty_user and timetable_entries:
+                entry_to_update = timetable_entries[0]
+                entry_to_update.faculty = faculty_user
+                entry_to_update.save()
+            
             for entry in timetable_entries:
-                # Only create if day matches
-                if entry.period_definition.day_of_week != day_of_week:
-                    continue
                 
                 # Create session
                 session, created = AttendanceSession.objects.get_or_create(
@@ -62,7 +73,7 @@ class Command(BaseCommand):
                     date=date,
                     defaults={
                         'status': 'CLOSED',
-                        'opened_by': entry.faculty.user,
+                        'opened_by': entry.faculty,
                         'opened_at': timezone.datetime.combine(
                             date,
                             entry.period_definition.start_time
@@ -79,7 +90,7 @@ class Command(BaseCommand):
                     sessions_created += 1
                     
                     # Create attendance records for students
-                    students = entry.section.students.all()
+                    students = entry.section.student_profiles.all()
                     for student in students:
                         # Randomly mark 80% as present, 15% absent, 5% late
                         import random
@@ -101,7 +112,7 @@ class Command(BaseCommand):
                                 entry.period_definition.start_time
                             ) + timedelta(minutes=random.randint(1, 10)),
                             is_manually_marked=True,
-                            marked_by=entry.faculty.user,
+                            marked_by=entry.faculty,
                             notes='Seeded attendance data'
                         )
                         attendances_created += 1

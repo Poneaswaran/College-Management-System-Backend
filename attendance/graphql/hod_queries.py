@@ -251,7 +251,7 @@ class HODAttendanceQuery:
                     is_active=True
                 ).select_related('faculty').first()
                 
-                faculty_name = timetable_entry.faculty.get_full_name() if timetable_entry and timetable_entry.faculty else "Unknown"
+                faculty_name = (getattr(getattr(timetable_entry.faculty, 'faculty_profile', None), 'full_name', None) or timetable_entry.faculty.email or 'Unknown') if timetable_entry and timetable_entry.faculty else "Unknown"
                 
                 # Calculate subject stats
                 subject_reports = reports_qs.filter(
@@ -468,7 +468,7 @@ class HODAttendanceQuery:
                 is_active=True
             ).select_related('faculty').first()
             
-            faculty_name = timetable_entry.faculty.get_full_name() if timetable_entry and timetable_entry.faculty else "Unknown"
+            faculty_name = (getattr(getattr(timetable_entry.faculty, 'faculty_profile', None), 'full_name', None) or timetable_entry.faculty.email or 'Unknown') if timetable_entry and timetable_entry.faculty else "Unknown"
             
             attended = report.present_count + report.late_count
             percentage = float(report.attendance_percentage)
@@ -504,7 +504,7 @@ class HODAttendanceQuery:
             
             # Get marked by
             if att.is_manually_marked and att.marked_by:
-                marked_by = att.marked_by.get_full_name()
+                marked_by = getattr(getattr(att.marked_by, 'faculty_profile', None), 'full_name', None) or att.marked_by.email or att.marked_by.register_number or 'Faculty'
             else:
                 marked_by = "System"
             
@@ -667,7 +667,7 @@ class HODAttendanceQuery:
                 is_active=True
             ).select_related('faculty').first()
             
-            faculty_name = timetable_entry.faculty.get_full_name() if timetable_entry and timetable_entry.faculty else "Unknown"
+            faculty_name = (getattr(getattr(timetable_entry.faculty, 'faculty_profile', None), 'full_name', None) or timetable_entry.faculty.email or 'Unknown') if timetable_entry and timetable_entry.faculty else "Unknown"
             
             # Get stats
             subject_reports = AttendanceReport.objects.filter(

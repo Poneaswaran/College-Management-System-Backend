@@ -118,7 +118,7 @@ class AttendanceQuery:
         
         # Student access
         if hasattr(user, 'student_profile'):
-            if session.timetable_entry.section.students.filter(id=user.student_profile.id).exists():
+            if session.timetable_entry.section.student_profiles.filter(id=user.student_profile.id).exists():
                 has_access = True
         
         # Faculty access
@@ -163,7 +163,7 @@ class AttendanceQuery:
                 from timetable.models import TimetableEntry
                 teaches_student = TimetableEntry.objects.filter(
                     faculty=user,
-                    section__students__id=student_id,
+                    section__student_profiles__id=student_id,
                     is_active=True
                 ).exists()
                 if not teaches_student and user.role.code not in ['ADMIN', 'HOD']:
@@ -349,6 +349,55 @@ class AttendanceQuery:
         
         return list(attendances)
     
+    @strawberry.field
+    @require_auth
+    def student_attendance_detail(
+        self,
+        info: Info,
+        session_id: int,
+        student_id: int
+    ) -> Optional[StudentAttendanceType]:
+        """
+        Get a single student's attendance record for a specific session.
+        Returns marked_at, image_url, latitude, longitude, register_number, etc.
+        Faculty teaching the class, admin, or the student themselves can access.
+        """
+        user = info.context.request.user
+
+        try:
+            session = AttendanceSession.objects.select_related(
+                'timetable_entry__faculty'
+            ).get(id=session_id)
+        except AttendanceSession.DoesNotExist:
+            return None
+
+        # Access control
+        is_own_record = (
+            hasattr(user, 'student_profile') and
+            user.student_profile.id == student_id
+        )
+        is_faculty = (
+            user.role.code == 'FACULTY' and
+            session.timetable_entry.faculty_id == user.id
+        )
+        is_admin = user.role.code in ['ADMIN', 'HOD']
+
+        if not (is_own_record or is_faculty or is_admin):
+            return None
+
+        try:
+            attendance = StudentAttendance.objects.select_related(
+                'student__user',
+                'session__timetable_entry__subject',
+                'session__timetable_entry__section',
+                'marked_by'
+            ).get(session_id=session_id, student_id=student_id)
+        except StudentAttendance.DoesNotExist:
+            return None
+
+        return attendance
+    
+
     @strawberry.field
     @require_auth
     def low_attendance_students(

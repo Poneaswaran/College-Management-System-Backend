@@ -52,13 +52,14 @@ class StudyMaterialValidator:
         
         # Faculty can only upload for subjects they teach
         if user.role.code == 'FACULTY':
-            from timetable.models import TimeSlot
+            from timetable.models import TimetableEntry
             
             # Check if faculty teaches this subject in this section
-            teaches = TimeSlot.objects.filter(
+            teaches = TimetableEntry.objects.filter(
                 subject=subject,
                 section=section,
-                faculty=user
+                faculty=user,
+                is_active=True
             ).exists()
             
             if not teaches:

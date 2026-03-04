@@ -142,10 +142,11 @@ def get_faculty_subjects_sections(faculty):
     Get all subjects and sections that a faculty teaches
     Returns a list of unique (subject, section) combinations
     """
-    from timetable.models import TimeSlot
+    from timetable.models import TimetableEntry
     
-    slots = TimeSlot.objects.filter(
-        faculty=faculty
+    slots = TimetableEntry.objects.filter(
+        faculty=faculty,
+        is_active=True
     ).select_related('subject', 'section').values(
         'subject__id',
         'subject__name',
