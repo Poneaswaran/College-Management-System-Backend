@@ -7,11 +7,14 @@ from datetime import date
 from strawberry.types import Info
 from django.utils import timezone
 
-from attendance.models import AttendanceSession, StudentAttendance, AttendanceReport
+from attendance.models import (
+    AttendanceSession, StudentAttendance, AttendanceReport, FacultyAttendance
+)
 from attendance.graphql.types import (
     AttendanceSessionType,
     StudentAttendanceType,
-    AttendanceReportType
+    AttendanceReportType,
+    FacultyAttendanceType
 )
 from attendance.graphql.hod_types import (
     HODAttendanceReportData,
@@ -509,3 +512,59 @@ class AttendanceQuery:
         return hod_query.hod_class_attendance_detail(
             info, section_id, semester_id, subject_id, date_from, date_to
         )
+
+    @strawberry.field
+    @require_auth
+    def faculty_attendance_history(
+        self,
+        info: Info,
+        faculty_id: Optional[int] = None,
+        date_from: Optional[date] = None,
+        date_to: Optional[date] = None
+    ) -> List[FacultyAttendanceType]:
+        """
+        Get faculty attendance records (Punch-in/Punch-out)
+        HOD can see records of their department.
+        Admin can see all.
+        Faculty can see their own.
+        """
+        user = info.context.request.user
+        
+        # Determine target queryset
+        if faculty_id:
+            from core.models import User
+            try:
+                faculty_user = User.objects.get(id=faculty_id)
+            except User.DoesNotExist:
+                return []
+                
+            # Access control
+            has_access = False
+            if user.id == faculty_id:
+                has_access = True
+            elif user.role.code == 'HOD' and faculty_user.department == user.department:
+                has_access = True
+            elif user.role.code == 'ADMIN':
+                has_access = True
+            
+            if not has_access:
+                return []
+            
+            queryset = FacultyAttendance.objects.filter(faculty_id=faculty_id)
+        else:
+            # Self or HOD viewing department
+            if user.role.code == 'HOD':
+                queryset = FacultyAttendance.objects.filter(faculty__department=user.department)
+            elif user.role.code == 'FACULTY':
+                queryset = FacultyAttendance.objects.filter(faculty=user)
+            elif user.role.code == 'ADMIN':
+                queryset = FacultyAttendance.objects.all()
+            else:
+                return []
+        
+        if date_from:
+            queryset = queryset.filter(date__gte=date_from)
+        if date_to:
+            queryset = queryset.filter(date__lte=date_to)
+            
+        return list(queryset.select_related('faculty').order_by('-date', '-punch_in_time'))

@@ -236,7 +236,7 @@ class StudyMaterialMutation:
     def delete_study_material(
         self,
         info,
-        material_id: int
+        material_id: strawberry.ID
     ) -> DeleteMaterialResponse:
         """
         Delete a study material

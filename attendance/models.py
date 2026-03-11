@@ -463,3 +463,64 @@ class AttendanceReport(models.Model):
         )
         report.calculate()
         return report
+
+
+def faculty_attendance_image_path(instance, filename):
+    """
+    Generate unique path for faculty attendance images
+    Format: faculty_attendance/{type}/{date}/{faculty_id}_{timestamp}.jpg
+    """
+    ext = filename.split('.')[-1]
+    timestamp = timezone.now().strftime('%Y%m%d_%H%M%S')
+    # Determine type based on instance state or context
+    punch_type = 'punch_in' if not instance.punch_out_time else 'punch_out'
+    return os.path.join(
+        'faculty_attendance',
+        punch_type,
+        instance.date.strftime('%Y-%m-%d'),
+        f"{instance.faculty.id}_{timestamp}.{ext}"
+    )
+
+
+class FacultyAttendance(models.Model):
+    """
+    Daily attendance for faculty (Punch-in/Punch-out)
+    """
+    faculty = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='faculty_attendances'
+    )
+    date = models.DateField(default=timezone.now)
+    
+    # Punch-In Details
+    punch_in_time = models.DateTimeField(null=True, blank=True)
+    punch_in_photo = models.ImageField(upload_to=faculty_attendance_image_path, null=True, blank=True)
+    punch_in_latitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    punch_in_longitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    
+    # Punch-Out Details
+    punch_out_time = models.DateTimeField(null=True, blank=True)
+    punch_out_photo = models.ImageField(upload_to=faculty_attendance_image_path, null=True, blank=True)
+    punch_out_latitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    punch_out_longitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    
+    # Metadata
+    is_late = models.BooleanField(default=False)
+    notes = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        db_table = 'faculty_attendance'
+        verbose_name = 'Faculty Attendance'
+        verbose_name_plural = 'Faculty Attendances'
+        unique_together = [['faculty', 'date']]
+        ordering = ['-date', '-punch_in_time']
+        indexes = [
+            models.Index(fields=['faculty', 'date']),
+            models.Index(fields=['date']),
+        ]
+
+    def __str__(self):
+        return f"{self.faculty} - {self.date}"

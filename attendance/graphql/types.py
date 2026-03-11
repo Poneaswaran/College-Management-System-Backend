@@ -7,7 +7,52 @@ from typing import Optional, List
 from datetime import date, time, datetime
 from decimal import Decimal
 
-from attendance.models import AttendanceSession, StudentAttendance, AttendanceReport
+from attendance.models import (
+    AttendanceSession, StudentAttendance, AttendanceReport, FacultyAttendance
+)
+from timetable.graphql.types import TimetableEntryType, SubjectType, SemesterType
+from core.graphql.types import UserType
+from profile_management.graphql.types import StudentProfileType
+
+@strawberry_django.type(FacultyAttendance)
+class FacultyAttendanceType:
+    """GraphQL type for FacultyAttendance (Punch-in/Punch-out)"""
+    
+    id: strawberry.ID
+    date: date
+    punch_in_time: Optional[datetime]
+    punch_in_latitude: Optional[Decimal]
+    punch_in_longitude: Optional[Decimal]
+    punch_out_time: Optional[datetime]
+    punch_out_latitude: Optional[Decimal]
+    punch_out_longitude: Optional[Decimal]
+    is_late: bool
+    notes: Optional[str]
+    created_at: datetime
+    updated_at: datetime
+    
+    @strawberry_django.field
+    def faculty(self) -> 'UserType':
+        return self.faculty
+        
+    @strawberry.field
+    def faculty_name(self) -> str:
+        """Get faculty full name"""
+        return self.faculty.email.split('@')[0] if self.faculty.email else "Faculty"
+
+    @strawberry.field
+    def punch_in_photo_url(self) -> Optional[str]:
+        """Get punch-in photo URL"""
+        if self.punch_in_photo:
+            return self.punch_in_photo.url
+        return None
+
+    @strawberry.field
+    def punch_out_photo_url(self) -> Optional[str]:
+        """Get punch-out photo URL"""
+        if self.punch_out_photo:
+            return self.punch_out_photo.url
+        return None
 
 
 @strawberry_django.type(AttendanceSession)
@@ -93,9 +138,6 @@ class AttendanceSessionType:
             return "Closed"
         return "Scheduled"
 
-# Import types from other apps
-from timetable.graphql.types import TimetableEntryType
-from core.graphql.types import UserType
 
 
 @strawberry_django.type(StudentAttendance)
@@ -173,8 +215,6 @@ class StudentAttendanceType:
         }
         return badges.get(self.status, self.status)
 
-# Import StudentProfileType
-from profile_management.graphql.types import StudentProfileType
 
 
 @strawberry_django.type(AttendanceReport)
@@ -255,8 +295,6 @@ class AttendanceReportType:
         needed = ((target * total) - present) / (1 - target)
         return max(0, int(needed) + 1)  # Round up
 
-# Import SubjectType and SemesterType
-from timetable.graphql.types import SubjectType, SemesterType
 
 
 # Input Types for Mutations

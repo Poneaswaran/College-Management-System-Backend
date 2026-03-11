@@ -233,6 +233,36 @@ class SeatingService:
         seating.save(update_fields=['is_present', 'marked_at'])
         return seating
 
+    @staticmethod
+    @transaction.atomic
+    def bulk_mark_exam_attendance(schedule_id: int, attendance_data: list, marked_by):
+        """
+        Bulk mark attendance for an exam schedule.
+        attendance_data: [{"student_id": int, "is_present": bool}, ...]
+        """
+        results = []
+        now = timezone.now()
+        
+        for data in attendance_data:
+            student_id = data.get('student_id')
+            is_present = data.get('is_present', False)
+            
+            seating = ExamSeatingArrangement.objects.get(
+                schedule_id=schedule_id,
+                student_id=student_id
+            )
+            seating.is_present = is_present
+            seating.marked_at = now
+            seating.save(update_fields=['is_present', 'marked_at'])
+            results.append(seating)
+            
+        logger.info("Bulk exam attendance marked", extra={
+            "schedule_id": schedule_id,
+            "count": len(results),
+            "marked_by": marked_by.id,
+        })
+        return results
+
 
 class ResultService:
     """Handles marks entry and result operations."""

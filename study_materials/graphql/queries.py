@@ -31,7 +31,7 @@ class StudyMaterialQuery:
     
     @strawberry.field
     @require_auth
-    def study_material(self, info, id: int) -> Optional[StudyMaterialType]:
+    def study_material(self, info, id: strawberry.ID) -> Optional[StudyMaterialType]:
         """
         Get a single study material by ID
         """
@@ -56,8 +56,8 @@ class StudyMaterialQuery:
     def study_materials(
         self,
         info,
-        subject_id: Optional[int] = None,
-        section_id: Optional[int] = None,
+        subject_id: Optional[strawberry.ID] = None,
+        section_id: Optional[strawberry.ID] = None,
         material_type: Optional[str] = None,
         status: Optional[str] = None
     ) -> List[StudyMaterialType]:
@@ -154,7 +154,7 @@ class StudyMaterialQuery:
     def material_statistics(
         self,
         info,
-        material_id: int
+        material_id: strawberry.ID
     ) -> Optional[MaterialStatisticsType]:
         """
         Get detailed statistics for a study material
@@ -200,7 +200,7 @@ class StudyMaterialQuery:
     def material_download_list(
         self,
         info,
-        material_id: int
+        material_id: strawberry.ID
     ) -> List[StudyMaterialDownloadType]:
         """
         Get list of students who downloaded a material

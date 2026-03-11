@@ -108,7 +108,7 @@ class StudyMaterialViewType:
 @strawberry.type
 class MaterialStatisticsType:
     """Statistics for a study material"""
-    material_id: int
+    material_id: strawberry.ID
     total_downloads: int
     unique_downloads: int
     total_views: int
@@ -119,10 +119,10 @@ class MaterialStatisticsType:
 @strawberry.type
 class FacultySubjectSectionType:
     """Subject-Section combination that a faculty teaches"""
-    subject_id: int
+    subject_id: strawberry.ID
     subject_name: str
     subject_code: str
-    section_id: int
+    section_id: strawberry.ID
     section_name: str
 
 
@@ -131,8 +131,8 @@ class FacultySubjectSectionType:
 @strawberry.input
 class UploadStudyMaterialInput:
     """Input for uploading a study material"""
-    subject_id: int
-    section_id: int
+    subject_id: strawberry.ID
+    section_id: strawberry.ID
     title: str
     description: str
     material_type: str
@@ -145,7 +145,7 @@ class UploadStudyMaterialInput:
 @strawberry.input
 class UpdateStudyMaterialInput:
     """Input for updating a study material"""
-    material_id: int
+    material_id: strawberry.ID
     title: Optional[str] = None
     description: Optional[str] = None
     material_type: Optional[str] = None
@@ -158,13 +158,13 @@ class UpdateStudyMaterialInput:
 @strawberry.input
 class RecordDownloadInput:
     """Input for recording a material download"""
-    material_id: int
+    material_id: strawberry.ID
 
 
 @strawberry.input
 class RecordViewInput:
     """Input for recording a material view"""
-    material_id: int
+    material_id: strawberry.ID
 
 
 # ==================== Response Types ====================

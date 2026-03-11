@@ -189,6 +189,7 @@ NOTIFICATION_DEFAULT_EXPIRY_HOURS = 168  # 7 days for non-critical notifications
 # Django REST Framework (for SSE endpoint)
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
+        'core.auth.JWTAuthentication',
         'notifications.sse.authentication.SSETokenAuthentication',
     ],
     'DEFAULT_PERMISSION_CLASSES': [
