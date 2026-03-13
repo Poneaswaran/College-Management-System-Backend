@@ -140,7 +140,7 @@ class HODAttendanceQuery:
         
         # Build base queryset for attendance reports
         reports_qs = AttendanceReport.objects.filter(
-            student__section__department=department,
+            student__department=department,
             semester=semester
         ).select_related('student', 'subject', 'semester', 'student__section', 'student__section__course')
         
@@ -150,7 +150,7 @@ class HODAttendanceQuery:
         # Get all students in department
         from profile_management.models import StudentProfile
         students_qs = StudentProfile.objects.filter(
-            section__department=department,
+            department=department,
             section__year__lte=4  # Limit to valid years
         ).select_related('user', 'section', 'section__course')
         
@@ -219,7 +219,7 @@ class HODAttendanceQuery:
         # Build class summaries
         from core.models import Section
         sections = Section.objects.filter(
-            department=department
+            course__department=department
         ).prefetch_related('student_profiles')
         
         classes_list = []
@@ -307,7 +307,7 @@ class HODAttendanceQuery:
         # Get available periods
         from timetable.models import PeriodDefinition
         periods = PeriodDefinition.objects.filter(
-            timetable_entry__section__department=department
+            timetable_entries__section__course__department=department
         ).distinct().order_by('period_number')
         
         available_periods = [
@@ -333,7 +333,7 @@ class HODAttendanceQuery:
         # Get available subjects
         from timetable.models import Subject
         subjects = Subject.objects.filter(
-            timetable_entries__section__department=department
+            department=department
         ).distinct().order_by('name')
         
         available_subjects = [
@@ -362,7 +362,7 @@ class HODAttendanceQuery:
         
         # Calculate total classes conducted
         total_classes_conducted = AttendanceSession.objects.filter(
-            timetable_entry__section__department=department,
+            timetable_entry__section__course__department=department,
             date__gte=date_from_obj,
             date__lte=date_to_obj,
             status='CLOSED'
@@ -415,7 +415,7 @@ class HODAttendanceQuery:
         from profile_management.models import StudentProfile
         try:
             student = StudentProfile.objects.select_related(
-                'user', 'section', 'section__course', 'section__department'
+                'user', 'section', 'section__course', 'department'
             ).get(id=student_id)
         except StudentProfile.DoesNotExist:
             raise Exception("Student not found")
@@ -432,7 +432,7 @@ class HODAttendanceQuery:
                 raise Exception("HOD faculty profile must be assigned to a department. Please contact administrator.")
             
             # Verify student belongs to HOD's department
-            if student.section.department != faculty_profile.department:
+            if student.department != faculty_profile.department:
                 raise Exception("Access denied. HOD can only access students from their own department.")
         
         # Get semester
@@ -560,7 +560,7 @@ class HODAttendanceQuery:
         # Get section
         from core.models import Section
         try:
-            section = Section.objects.select_related('department', 'course').get(id=section_id)
+            section = Section.objects.select_related('course', 'course__department').get(id=section_id)
         except Section.DoesNotExist:
             raise Exception("Section not found")
         
@@ -576,7 +576,7 @@ class HODAttendanceQuery:
                 raise Exception("HOD faculty profile must be assigned to a department. Please contact administrator.")
             
             # Verify section belongs to HOD's department
-            if section.department != faculty_profile.department:
+            if section.course.department != faculty_profile.department:
                 raise Exception("Access denied. HOD can only access sections from their own department.")
         
         # Get semester
