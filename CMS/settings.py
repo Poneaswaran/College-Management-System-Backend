@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
 from pathlib import Path
+import importlib
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -47,9 +48,18 @@ INSTALLED_APPS = [
     "assignment",
     "grades",
     "notifications",
+    "configuration",
     "exams",
     "study_materials",
+    "onboarding",
 ]
+
+try:
+    importlib.import_module("django_q")
+    from django.utils import baseconv  # noqa: F401
+    INSTALLED_APPS.append("django_q")
+except Exception:
+    pass
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
@@ -195,4 +205,18 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
     ],
+}
+
+Q_CLUSTER = {
+    'name': 'cms_q_cluster',
+    'workers': 2,
+    'retry': 360,
+    'timeout': 300,
+    'max_attempts': 3,
+    'ack_failures': True,
+    'save_limit': 1000,
+    'catch_up': False,
+    'queue_limit': 500,
+    'bulk': 10,
+    'orm': 'default',
 }

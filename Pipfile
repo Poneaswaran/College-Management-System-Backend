@@ -9,6 +9,10 @@ pillow = "*"
 strawberry-graphql = {extras = ["django"], version = "*"}
 pyjwt = "*"
 django = {extras = ["argon2"], version = "*"}
+django-q2 = "*"
+qrcode = "*"
+reportlab = "*"
+setuptools = "<81"
 
 [dev-packages]
 django-extensions = "*"
