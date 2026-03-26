@@ -94,10 +94,10 @@ class Migration(migrations.Migration):
         ),
         migrations.AddIndex(
             model_name="onboardingtasklog",
-            index=models.Index(fields=["entity_type", "status"], name="onboarding_o_entity__24f5e5_idx"),
+            index=models.Index(fields=["entity_type", "status"], name="onboarding__entity__a4db8e_idx"),
         ),
         migrations.AddIndex(
             model_name="onboardingtasklog",
-            index=models.Index(fields=["uploaded_by", "created_at"], name="onboarding_o_uploaded_dca737_idx"),
+            index=models.Index(fields=["uploaded_by", "created_at"], name="onboarding__uploade_a6bf1d_idx"),
         ),
     ]

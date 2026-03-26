@@ -16,6 +16,8 @@ from onboarding.constants import (
     TASK_STATUS_PROCESSING,
 )
 from onboarding.models import OnboardingTaskLog
+from onboarding.services.approval_service import StudentApprovalService
+from onboarding.services.audit_service import OnboardingAuditService
 from onboarding.services.event_service import EventService
 from onboarding.services.validation_service import ValidationService
 from onboarding.exceptions import BulkValidationException
@@ -29,6 +31,25 @@ User = get_user_model()
 
 
 class StudentOnboardingService:
+    @staticmethod
+    def onboard_single(row_data, actor=None):
+        reference_maps = ValidationService.get_reference_maps()
+        _, failure_count, errors = StudentOnboardingService._process_chunk(
+            chunk_rows=[row_data],
+            reference_maps=reference_maps,
+            row_start=2,
+            dry_run=False,
+            actor=actor,
+        )
+        if failure_count:
+            message = errors[0]["message"] if errors else "Manual onboarding failed"
+            raise BulkValidationException(message)
+
+        from profile_management.models import StudentProfile
+
+        register_number = str(row_data.get("registration_number", "")).strip()
+        return StudentProfile.objects.select_related("user").filter(register_number=register_number).first()
+
     @staticmethod
     def process_bulk_upload(task_log_id, rows_override=None):
         task_log = OnboardingTaskLog.objects.select_related("uploaded_by").get(id=task_log_id)
@@ -88,6 +109,7 @@ class StudentOnboardingService:
                 reference_maps=reference_maps,
                 row_start=row_cursor,
                 dry_run=task_log.dry_run,
+                actor=task_log.uploaded_by,
             )
 
             row_cursor += len(rows_only)
@@ -158,7 +180,7 @@ class StudentOnboardingService:
 
     @staticmethod
     @transaction.atomic
-    def _process_chunk(chunk_rows, reference_maps, row_start, dry_run=False):
+    def _process_chunk(chunk_rows, reference_maps, row_start, dry_run=False, actor=None):
         from profile_management.models import StudentProfile
 
         valid_rows = []
@@ -241,6 +263,13 @@ class StudentOnboardingService:
                         existing_profile.admission_date = row["admission_date"]
                         existing_profile.is_active = True
                         profiles_to_update.append(existing_profile)
+                        OnboardingAuditService.log(
+                            action="STUDENT_ONBOARDING_UPDATED",
+                            entity_type="STUDENT",
+                            entity_id=existing_profile.id,
+                            actor=actor,
+                            metadata={"register_number": register_number},
+                        )
                         continue
 
                     existing_user = existing_users_by_register.get(register_number) or existing_users_by_email.get(email)
@@ -263,7 +292,7 @@ class StudentOnboardingService:
                                 register_number=register_number,
                                 role=role,
                                 department=department,
-                                is_active=True,
+                                is_active=False,
                                 password=make_password(uuid4().hex),
                             )
                         )
@@ -340,13 +369,26 @@ class StudentOnboardingService:
                         year=row["year"],
                         semester=row["semester"],
                         admission_date=row["admission_date"],
-                        is_active=True,
+                        is_active=False,
+                        academic_status="INACTIVE",
                     )
                 )
                 EventService.emit_student_created(row["registration_number"], user.email)
 
             if profiles_to_create:
                 StudentProfile.objects.bulk_create(profiles_to_create, ignore_conflicts=True)
+                created_profiles = StudentProfile.objects.select_related("user").filter(
+                    register_number__in=[row["registration_number"] for _, row in profiles_to_create_data]
+                )
+                for created in created_profiles:
+                    StudentApprovalService.ensure_pending(student_profile=created, requested_by=actor)
+                    OnboardingAuditService.log(
+                        action="STUDENT_ONBOARDED_PENDING_APPROVAL",
+                        entity_type="STUDENT",
+                        entity_id=created.id,
+                        actor=actor,
+                        metadata={"register_number": created.register_number},
+                    )
 
         if profiles_to_update:
             lock_ids = [p.id for p in profiles_to_update if p.id]

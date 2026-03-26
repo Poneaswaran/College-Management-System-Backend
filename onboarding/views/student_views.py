@@ -9,11 +9,13 @@ from onboarding.constants import TASK_ENTITY_STUDENT
 from onboarding.async_queue import async_task
 from onboarding.exceptions import DuplicateUploadException
 from onboarding.models import OnboardingTaskLog, StudentIDCard
+from onboarding.permissions import IsAdminRole, OnboardingAccessPermission
 from onboarding.serializers.student_serializers import (
     OnboardingTaskStatusSerializer,
     StudentBulkUploadSerializer,
     StudentIDCardSerializer,
 )
+from onboarding.services.audit_service import OnboardingAuditService
 from onboarding.services.id_card_service import IDCardService
 from onboarding.services.student_onboarding_service import StudentOnboardingService
 from onboarding.services.validation_service import ValidationService
@@ -22,20 +24,12 @@ from onboarding.utils.file_parser import compute_file_hash
 from onboarding.views.etag_mixin import ETagMixin
 
 
-class IsAdminRole(permissions.BasePermission):
-    def has_permission(self, request, view):
-        user = request.user
-        if not user or not user.is_authenticated:
-            return False
-        if user.is_superuser:
-            return True
-        return hasattr(user, "role") and user.role and user.role.code in ["ADMIN", "SUPER_ADMIN"]
-
-
 class StudentBulkUploadView(generics.GenericAPIView):
     serializer_class = StudentBulkUploadSerializer
     authentication_classes = [JWTAuthentication]
-    permission_classes = [permissions.IsAuthenticated, IsAdminRole]
+    permission_classes = [permissions.IsAuthenticated, OnboardingAccessPermission]
+    onboarding_entity_type = TASK_ENTITY_STUDENT
+    onboarding_action = "bulk_upload"
 
     def post(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -49,6 +43,12 @@ class StudentBulkUploadView(generics.GenericAPIView):
 
         if dry_run:
             result = StudentOnboardingService.validate_bulk_upload(file_obj)
+            OnboardingAuditService.log(
+                action="STUDENT_BULK_UPLOAD_DRY_RUN",
+                entity_type=TASK_ENTITY_STUDENT,
+                actor=request.user,
+                metadata={"file_hash": file_hash, "total_rows": result.get("total_rows", 0)},
+            )
             return Response(
                 {
                     "dry_run": True,
@@ -77,6 +77,14 @@ class StudentBulkUploadView(generics.GenericAPIView):
         task_log.task_id = str(task_id)
         task_log.save(update_fields=["task_id", "updated_at"])
 
+        OnboardingAuditService.log(
+            action="STUDENT_BULK_UPLOAD_QUEUED",
+            entity_type=TASK_ENTITY_STUDENT,
+            entity_id=task_log.task_id,
+            actor=request.user,
+            metadata={"file_hash": file_hash, "dry_run": False},
+        )
+
         return Response(
             {
                 "task_id": task_log.task_id,
@@ -90,7 +98,9 @@ class StudentBulkUploadView(generics.GenericAPIView):
 class StudentBulkUploadStatusView(ETagMixin, generics.RetrieveAPIView):
     serializer_class = OnboardingTaskStatusSerializer
     authentication_classes = [JWTAuthentication]
-    permission_classes = [permissions.IsAuthenticated, IsAdminRole]
+    permission_classes = [permissions.IsAuthenticated, OnboardingAccessPermission]
+    onboarding_entity_type = TASK_ENTITY_STUDENT
+    onboarding_action = "bulk_upload"
     lookup_field = "task_id"
 
     def get_queryset(self):

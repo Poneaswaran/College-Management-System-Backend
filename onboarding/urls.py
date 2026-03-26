@@ -5,7 +5,19 @@ from rest_framework.views import APIView
 
 from core.auth import JWTAuthentication
 from onboarding.services.id_card_service import IDCardService
-from onboarding.views.admin_views import RetryFailedOnboardingTaskView
+from onboarding.views.admin_views import (
+    ApproveStudentOnboardingView,
+    FacultyManualOnboardingView,
+    GrantTemporaryOnboardingAccessView,
+    OnboardingDraftDetailView,
+    OnboardingDraftListCreateView,
+    PendingStudentApprovalsView,
+    RejectStudentOnboardingView,
+    RetryFailedOnboardingTaskView,
+    RevokeTemporaryOnboardingAccessView,
+    StudentManualOnboardingView,
+    SubmitOnboardingDraftView,
+)
 from onboarding.views.faculty_views import (
     FacultyBulkUploadStatusView,
     FacultyBulkUploadView,
@@ -64,5 +76,55 @@ urlpatterns = [
         "admin/onboarding/retry-failed/<str:task_id>/",
         RetryFailedOnboardingTaskView.as_view(),
         name="onboarding_retry_failed",
+    ),
+    path(
+        "admin/onboarding/access/grant/",
+        GrantTemporaryOnboardingAccessView.as_view(),
+        name="onboarding_access_grant",
+    ),
+    path(
+        "admin/onboarding/access/revoke/",
+        RevokeTemporaryOnboardingAccessView.as_view(),
+        name="onboarding_access_revoke",
+    ),
+    path(
+        "admin/students/pending-approvals/",
+        PendingStudentApprovalsView.as_view(),
+        name="student_pending_approvals",
+    ),
+    path(
+        "admin/students/<int:student_id>/approve/",
+        ApproveStudentOnboardingView.as_view(),
+        name="student_approve_onboarding",
+    ),
+    path(
+        "admin/students/<int:student_id>/reject/",
+        RejectStudentOnboardingView.as_view(),
+        name="student_reject_onboarding",
+    ),
+    path(
+        "admin/students/manual/",
+        StudentManualOnboardingView.as_view(),
+        name="student_manual_onboarding",
+    ),
+    path(
+        "admin/faculty/manual/",
+        FacultyManualOnboardingView.as_view(),
+        name="faculty_manual_onboarding",
+    ),
+    path(
+        "admin/onboarding/drafts/",
+        OnboardingDraftListCreateView.as_view(),
+        name="onboarding_draft_list_create",
+    ),
+    path(
+        "admin/onboarding/drafts/<int:draft_id>/",
+        OnboardingDraftDetailView.as_view(),
+        name="onboarding_draft_detail",
+    ),
+    path(
+        "admin/onboarding/drafts/<int:draft_id>/submit/",
+        SubmitOnboardingDraftView.as_view(),
+        name="onboarding_draft_submit",
     ),
 ]

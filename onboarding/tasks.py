@@ -2,6 +2,7 @@ from onboarding.services.faculty_onboarding_service import FacultyOnboardingServ
 from onboarding.services.student_onboarding_service import StudentOnboardingService
 from onboarding.models import OnboardingTaskLog
 from onboarding.constants import TASK_STATUS_FAILED
+from onboarding.services.audit_service import OnboardingAuditService
 from django.utils import timezone
 
 
@@ -45,3 +46,10 @@ def onboarding_task_hook(task):
     ]
     task_log.completed_at = timezone.now()
     task_log.save(update_fields=["status", "error_log", "completed_at", "updated_at"])
+    OnboardingAuditService.log(
+        action="ONBOARDING_TASK_FAILED",
+        entity_type=task_log.entity_type,
+        entity_id=task_log.task_id,
+        actor=task_log.uploaded_by,
+        metadata={"error": task.result or "Worker crashed or task failed"},
+    )

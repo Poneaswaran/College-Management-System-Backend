@@ -6,6 +6,7 @@ from django.db.models import Q
 from onboarding.constants import (
     TASK_ENTITY_CHOICES,
     TASK_ENTITY_STUDENT,
+    TASK_ENTITY_FACULTY,
     TASK_STATUS_CHOICES,
     TASK_STATUS_PENDING,
     ID_CARD_STATUS_CHOICES,
@@ -81,6 +82,143 @@ class OnboardingTaskLog(models.Model):
 
     def __str__(self):
         return f"{self.entity_type} - {self.task_id}"
+
+
+class OnboardingAuditLog(models.Model):
+    action = models.CharField(max_length=80, db_index=True)
+    entity_type = models.CharField(max_length=20, choices=TASK_ENTITY_CHOICES, default=TASK_ENTITY_STUDENT)
+    entity_id = models.CharField(max_length=120, blank=True)
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="onboarding_audit_logs",
+    )
+    metadata = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["entity_type", "action", "created_at"]),
+            models.Index(fields=["actor", "created_at"]),
+        ]
+
+
+class StudentOnboardingApproval(models.Model):
+    STATUS_PENDING = "PENDING"
+    STATUS_APPROVED = "APPROVED"
+    STATUS_REJECTED = "REJECTED"
+    STATUS_CHOICES = [
+        (STATUS_PENDING, "Pending"),
+        (STATUS_APPROVED, "Approved"),
+        (STATUS_REJECTED, "Rejected"),
+    ]
+
+    student_profile = models.OneToOneField(
+        "profile_management.StudentProfile",
+        on_delete=models.CASCADE,
+        related_name="onboarding_approval",
+    )
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING, db_index=True)
+    requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="requested_student_onboarding_approvals",
+    )
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="approved_student_onboarding_approvals",
+    )
+    remarks = models.TextField(blank=True)
+    approved_at = models.DateTimeField(null=True, blank=True)
+    rejected_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-updated_at"]
+
+
+class TemporaryOnboardingAccess(models.Model):
+    SCOPE_ALL = "ALL"
+    SCOPE_CHOICES = [
+        (TASK_ENTITY_STUDENT, "Student"),
+        (TASK_ENTITY_FACULTY, "Faculty"),
+        (SCOPE_ALL, "All"),
+    ]
+
+    faculty_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="temporary_onboarding_accesses",
+    )
+    granted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="granted_onboarding_accesses",
+    )
+    scope = models.CharField(max_length=20, choices=SCOPE_CHOICES, default=SCOPE_ALL)
+    can_bulk_upload = models.BooleanField(default=True)
+    can_retry = models.BooleanField(default=True)
+    expires_at = models.DateTimeField(db_index=True)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["faculty_user", "is_active", "expires_at"]),
+        ]
+
+
+class OnboardingDraft(models.Model):
+    STATUS_DRAFT = "DRAFT"
+    STATUS_SUBMITTED = "SUBMITTED"
+    STATUS_CHOICES = [
+        (STATUS_DRAFT, "Draft"),
+        (STATUS_SUBMITTED, "Submitted"),
+    ]
+
+    entity_type = models.CharField(max_length=20, choices=TASK_ENTITY_CHOICES)
+    payload = models.JSONField(default=dict)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_DRAFT)
+
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="created_onboarding_drafts",
+    )
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="updated_onboarding_drafts",
+    )
+    submitted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="submitted_onboarding_drafts",
+    )
+    submitted_at = models.DateTimeField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-updated_at"]
+        indexes = [
+            models.Index(fields=["entity_type", "status", "updated_at"]),
+            models.Index(fields=["created_by", "updated_at"]),
+        ]
 
 
 class FacultyOnboardingRecord(models.Model):

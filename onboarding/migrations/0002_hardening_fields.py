@@ -64,7 +64,7 @@ class Migration(migrations.Migration):
         ),
         migrations.AddIndex(
             model_name="onboardingtasklog",
-            index=models.Index(fields=["is_active", "entity_type", "created_at"], name="onboarding_o_is_acti_96c8fd_idx"),
+            index=models.Index(fields=["is_active", "entity_type", "created_at"], name="onboarding__is_acti_965efb_idx"),
         ),
         migrations.AddConstraint(
             model_name="onboardingtasklog",

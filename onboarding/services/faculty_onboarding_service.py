@@ -16,6 +16,7 @@ from onboarding.constants import (
     TASK_STATUS_PROCESSING,
 )
 from onboarding.models import FacultyOnboardingRecord, OnboardingTaskLog
+from onboarding.services.audit_service import OnboardingAuditService
 from onboarding.services.event_service import EventService
 from onboarding.services.validation_service import ValidationService
 from onboarding.exceptions import BulkValidationException
@@ -29,6 +30,26 @@ User = get_user_model()
 
 
 class FacultyOnboardingService:
+    @staticmethod
+    def onboard_single(row_data, actor=None):
+        reference_maps = ValidationService.get_reference_maps()
+        _, failure_count, errors = FacultyOnboardingService._process_chunk(
+            chunk_rows=[row_data],
+            reference_maps=reference_maps,
+            row_start=2,
+            dry_run=False,
+            actor=actor,
+        )
+        if failure_count:
+            message = errors[0]["message"] if errors else "Manual onboarding failed"
+            raise BulkValidationException(message)
+
+        from onboarding.models import FacultyOnboardingRecord
+
+        employee_id = str(row_data.get("employee_id", "")).strip().upper()
+        record = FacultyOnboardingRecord.objects.select_related("faculty_profile").filter(employee_id=employee_id).first()
+        return record.faculty_profile if record else None
+
     @staticmethod
     def process_bulk_upload(task_log_id, rows_override=None):
         task_log = OnboardingTaskLog.objects.select_related("uploaded_by").get(id=task_log_id)
@@ -85,6 +106,7 @@ class FacultyOnboardingService:
                 reference_maps=reference_maps,
                 row_start=row_cursor,
                 dry_run=task_log.dry_run,
+                actor=task_log.uploaded_by,
             )
             row_cursor += len(rows_only)
 
@@ -154,7 +176,7 @@ class FacultyOnboardingService:
 
     @staticmethod
     @transaction.atomic
-    def _process_chunk(chunk_rows, reference_maps, row_start, dry_run=False):
+    def _process_chunk(chunk_rows, reference_maps, row_start, dry_run=False, actor=None):
         from profile_management.models import FacultyProfile
 
         valid_rows = []
@@ -292,6 +314,13 @@ class FacultyOnboardingService:
                         record.is_hod = row["is_hod"]
                         record.subject_codes = row["subject_codes"]
                         records_to_update.append(record)
+                        OnboardingAuditService.log(
+                            action="FACULTY_ONBOARDING_UPDATED",
+                            entity_type="FACULTY",
+                            entity_id=record.faculty_profile_id,
+                            actor=actor,
+                            metadata={"employee_id": employee_id, "is_hod": row["is_hod"]},
+                        )
                         continue
 
                     if row["is_hod"] and department.id in existing_hod_department_ids:
@@ -442,6 +471,13 @@ class FacultyOnboardingService:
                     )
                 )
                 EventService.emit_faculty_created(row["employee_id"], persisted.user.email)
+                OnboardingAuditService.log(
+                    action="FACULTY_ONBOARDED",
+                    entity_type="FACULTY",
+                    entity_id=persisted.id,
+                    actor=actor,
+                    metadata={"employee_id": row["employee_id"], "is_hod": row["is_hod"]},
+                )
 
         if profiles_to_update:
             lock_ids = [p.id for p in profiles_to_update if p.id]

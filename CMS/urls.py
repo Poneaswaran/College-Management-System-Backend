@@ -184,6 +184,7 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path("graphql/", csrf_exempt(CustomGraphQLView.as_view(schema=schema))),
     path('api/', include('onboarding.urls')),
+    path('api/profile/', include('profile_management.urls')),
     path('api/notifications/', include('notifications.urls')),
     path('api/study-materials/', include('study_materials.urls')),
     path('api/exams/', include('exams.urls')),
