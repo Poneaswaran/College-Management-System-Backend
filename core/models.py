@@ -43,11 +43,12 @@ class Section(models.Model):
         on_delete=models.CASCADE,
         related_name="sections"
     )
-    name = models.CharField(max_length=10)  # A, B, C
+    code = models.CharField(max_length=10, default="TEMP") # A, B, C
+    name = models.CharField(max_length=100, default="TEMP") # B.Sc Computer Science Year 1 Section A
     year = models.PositiveIntegerField()    # 1,2,3,4
 
     class Meta:
-        unique_together = ("course", "name", "year")
+        unique_together = ("course", "code", "year")
 
     def __str__(self):
         return f"{self.course.code} {self.year}-{self.name}"

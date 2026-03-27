@@ -2,7 +2,8 @@ from django.urls import path
 from .views.api_views import (
     VenueListView, AvailableVenueListView, AllocateResourceView, 
     AdminRoomCreateView, AssignRoomToClassView,
-    AdminBuildingCreateView, AdminBuildingListView, AdminBuildingDetailView
+    AdminBuildingCreateView, AdminBuildingListView, AdminBuildingDetailView,
+    AdminBulkAssignSectionRoomView, AssignedVenuesOverviewView
 )
 
 urlpatterns = [
@@ -16,4 +17,6 @@ urlpatterns = [
     path('admin/buildings/', AdminBuildingListView.as_view(), name='admin-building-list'),
     path('admin/buildings/create/', AdminBuildingCreateView.as_view(), name='admin-building-create'),
     path('admin/buildings/<int:pk>/', AdminBuildingDetailView.as_view(), name='admin-building-detail'),
+    path('admin/sections/assign-room/', AdminBulkAssignSectionRoomView.as_view(), name='admin-bulk-assign-section-room'),
+    path('venues/assigned-overview/', AssignedVenuesOverviewView.as_view(), name='assigned-venues-overview'),
 ]

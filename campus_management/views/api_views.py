@@ -224,3 +224,46 @@ class AdminBuildingDetailView(APIView):
         else:
             return Response({'error': result['error']}, status=status.HTTP_404_NOT_FOUND)
 
+class AdminBulkAssignSectionRoomView(APIView):
+    """
+    API for admin to bulk assign a venue to all classes of a section.
+    Usage: /api/campus-management/admin/sections/assign-room/
+    Payload: {"section_id": 1, "venue_id": 12}
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        if request.user.role.code != 'ADMIN':
+            return Response({'error': 'Unauthorized. Admin role required.'}, status=status.HTTP_403_FORBIDDEN)
+
+        section_id = request.data.get('section_id')
+        venue_id = request.data.get('venue_id')
+
+        if not section_id or not venue_id:
+            return Response({'error': 'section_id and venue_id are required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        result = TimetableIntegrationService.bulk_assign_section_to_venue(
+            section_id=section_id,
+            venue_id=venue_id
+        )
+
+        return Response(result)
+
+class AssignedVenuesOverviewView(APIView):
+    """
+    API to list all assigned venues for active timetable entries.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        data = TimetableIntegrationService.get_assigned_venues_overview()
+        
+        # ETag implementation
+        etag = generate_etag(data)
+        if check_etag(request, etag):
+            return Response(status=status.HTTP_304_NOT_MODIFIED)
+            
+        response = Response({'assigned_venues': data})
+        response['ETag'] = f'"{etag}"'
+        return response
+

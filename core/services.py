@@ -1,6 +1,48 @@
 from typing import List, Dict, Union
 from django.core.exceptions import ObjectDoesNotExist
-from core.models import Role, Permission, RolePermission
+from core.models import Role, Permission, RolePermission, Department, Course, Section
+
+class AcademicStructureService:
+    @staticmethod
+    def create_department(name, code, is_active=True):
+        dept, created = Department.objects.get_or_create(code=code, defaults={'name': name, 'is_active': is_active})
+        return {'success': True, 'id': dept.id, 'created': created}
+
+    @staticmethod
+    def create_course(dept_id, name, code, duration_years=4):
+        try:
+            dept = Department.objects.get(id=dept_id)
+            course, created = Course.objects.get_or_create(
+                department=dept, code=code, 
+                defaults={'name': name, 'duration_years': duration_years}
+            )
+            return {'success': True, 'id': course.id, 'created': created}
+        except Department.DoesNotExist:
+            return {'success': False, 'error': 'Department not found.'}
+
+    @staticmethod
+    def create_section(course_id, name, code, year):
+        try:
+            course = Course.objects.get(id=course_id)
+            section, created = Section.objects.get_or_create(
+                course=course, code=code, year=year,
+                defaults={'name': name}
+            )
+            return {'success': True, 'id': section.id, 'created': created}
+        except Course.DoesNotExist:
+            return {'success': False, 'error': 'Course not found.'}
+
+    @staticmethod
+    def get_departments():
+        return list(Department.objects.filter(is_active=True).values('id', 'name', 'code'))
+
+    @staticmethod
+    def get_courses():
+        return [{
+            'id': c.id, 'name': c.name, 'code': c.code,
+            'department_name': c.department.name,
+            'duration_years': c.duration_years
+        } for c in Course.objects.select_related('department').all()]
 from campus_management.models import Building, Floor, Venue
 from django.db.models import Count, Sum
 from django.db import transaction
