@@ -44,6 +44,9 @@ class FilterOptionsAPIView(APIView):
             data = CoreFilterService.get_room_filters(building_name)
         elif filter_type == 'assign_room':
             data = CoreFilterService.get_assignment_filters()
+        elif filter_type == 'timetable':
+            semester_id = request.query_params.get('semester_id')
+            data = CoreFilterService.get_timetable_filters(semester_id)
         else:
             return Response({'error': 'Invalid filter type'}, status=status.HTTP_400_BAD_REQUEST)
             

@@ -16,6 +16,9 @@ from campus_management.services import ResourceAllocationService
 from campus_management.models import Resource
 
 
+from timetable.services import TimetableService
+
+
 @strawberry.type
 class TimetableMutation:
     """
@@ -36,82 +39,23 @@ class TimetableMutation:
         notes: Optional[str] = ""
     ) -> TimetableEntryType:
         """
-        Create a new timetable entry
-        
-        Args:
-            section_id: ID of the section
-            subject_id: ID of the subject
-            faculty_id: ID of the faculty member
-            period_definition_id: ID of the period definition
-            semester_id: ID of the semester
-            room_id: Optional ID of the room
-            notes: Optional notes
-        
-        Returns:
-            Created timetable entry
-        
-        Raises:
-            Exception: If validation fails or conflicts exist
+        Create a new timetable entry using TimetableService
         """
         try:
-            # Integrate campus_management ResourceAllocationService
-            allocation_id = None
-            if room_id:
-                try:
-                    resource = Resource.objects.get(resource_type='ROOM', reference_id=room_id)
-                except Resource.DoesNotExist:
-                    resource = Resource.objects.create(resource_type='ROOM', reference_id=room_id)
-                
-                # Fetch period directly to get timings
-                period = PeriodDefinition.objects.get(id=period_definition_id)
-                
-                # Create a representative dummy datetime for weekly recurring class (e.g. week of Jan 1, 1900)
-                dummy_date = datetime(1900, 1, period.day_of_week)
-                start_time = datetime.combine(dummy_date, period.start_time)
-                end_time = datetime.combine(dummy_date, period.end_time)
-
-                allocation_result = ResourceAllocationService.allocate(
-                    resource=resource,
-                    start_time=start_time,
-                    end_time=end_time,
-                    allocation_type='CLASS',
-                    source_app='timetable',
-                    source_id=0  # Temporary source_id, updated after save
-                )
-                
-                if not allocation_result['success']:
-                    raise ValidationError(f"Room allocation failed: {allocation_result['error']}")
-                allocation_id = allocation_result['allocation'].id
-
-            # Create entry
-            entry = TimetableEntry(
+            # Business logic in centralized service
+            entry = TimetableService.create_timetable_entry(
                 section_id=section_id,
                 subject_id=subject_id,
                 faculty_id=faculty_id,
                 period_definition_id=period_definition_id,
                 semester_id=semester_id,
                 room_id=room_id,
-                allocation_id=allocation_id,
-                notes=notes or "",
-                is_active=True
+                notes=notes or ""
             )
-            
-            # Validate (this will check for conflicts)
-            entry.full_clean()
-            
-            # Save
-            entry.save()
-            
-            if allocation_id:
-                allocation = allocation_result['allocation']
-                allocation.source_id = entry.id
-                allocation.save()
-                
-            # Refresh from database with relations
-            entry.refresh_from_db()
             return entry
             
         except ValidationError as e:
+            # Standard error extraction from service/model validation
             error_messages = []
             if hasattr(e, 'message_dict'):
                 for field, messages in e.message_dict.items():

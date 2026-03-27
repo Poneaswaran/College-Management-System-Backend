@@ -190,6 +190,7 @@ urlpatterns = [
     path('api/exams/', include('exams.urls')),
     path('api/attendance/', include('attendance.urls')),
     path('api/campus-management/', include('campus_management.urls')),
+    path('api/timetable/', include('timetable.urls')),
     path('api/core/', include('core.urls')),
 ]
 

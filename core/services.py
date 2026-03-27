@@ -1,6 +1,7 @@
 from typing import List, Dict, Union
 from django.core.exceptions import ObjectDoesNotExist
-from core.models import Role, Permission, RolePermission, Department, Course, Section
+from core.models import Role, Permission, RolePermission, Department, Course, Section, User
+from timetable.models import PeriodDefinition
 
 class AcademicStructureService:
     @staticmethod
@@ -209,3 +210,49 @@ class CoreFilterService:
             buildings_data.append(building_entry)
             
         return buildings_data
+
+    @staticmethod
+    def get_timetable_filters(semester_id=None):
+        """
+        Fetch all filters required to build a timetable:
+        Sections, Faculty, Rooms, and Periods.
+        """
+        # 1. Sections
+        sections = Section.objects.select_related('course').all()
+        
+        # 2. Faculty (Users with role code 'FACULTY')
+        faculties = User.objects.filter(role__code='FACULTY', is_active=True)
+        
+        # 3. Rooms (Venues)
+        rooms = Venue.objects.select_related('floor__building').filter(is_active=True)
+        
+        # 4. Periods (Filtered by semester_id if provided)
+        periods_query = PeriodDefinition.objects.all()
+        if semester_id:
+            periods_query = periods_query.filter(semester_id=semester_id)
+        
+        periods = periods_query.select_related('semester', 'semester__academic_year').order_by('day_of_week', 'period_number')
+
+        return {
+            'sections': [
+                {'section_id': s.id, 'section_name': f"{s.course.code} {s.year}-{s.name}"} 
+                for s in sections
+            ],
+            'faculties': [
+                {'faculty_id': f.id, 'faculty_name': f.get_full_name() or f.username} 
+                for f in faculties
+            ],
+            'rooms': [
+                {'room_id': r.id, 'room_name': r.name, 'building': r.floor.building.name} 
+                for r in rooms
+            ],
+            'periods': [
+                {
+                    'id': p.id,
+                    'period_number': p.period_number,
+                    'day_name': p.get_day_of_week_display(),
+                    'start_time': p.start_time.strftime('%H:%M:%S'),
+                    'end_time': p.end_time.strftime('%H:%M:%S')
+                } for p in periods
+            ]
+        }

@@ -1,4 +1,5 @@
 from django.db import models
+from .timetable.models import TimetableConfiguration
 
 
 class Configuration(models.Model):
