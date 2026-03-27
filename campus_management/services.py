@@ -3,6 +3,7 @@ from django.db.models import Count
 from django.core.exceptions import ValidationError
 from .models import Resource, ResourceAllocation, Building, Floor, Venue
 from timetable.models import TimetableEntry, PeriodDefinition
+from core.models import Section
 from datetime import datetime
 from collections import Counter
 
@@ -195,3 +196,63 @@ class TimetableIntegrationService:
             data.append(section_data)
             
         return sorted(data, key=lambda x: x['section_name'])
+
+    @staticmethod
+    def get_section_allocation_summary(unassigned_only=False, page=1, page_size=20):
+        """
+        Calculates which sections have room assignments and which do not.
+        Returns counts, pagination metadata, and a list of sections.
+        """
+        # 1. Fetch all active sections
+        sections = Section.objects.select_related('course', 'course__department').all().order_by('id')
+        
+        # 2. Identify sections with at least one room allocation
+        assigned_section_ids = TimetableEntry.objects.filter(
+            allocation_id__isnull=False, is_active=True
+        ).values_list('section_id', flat=True).distinct()
+        
+        assigned_set = set(assigned_section_ids)
+        
+        filtered_results = []
+        unassigned_count = 0
+        assigned_count = 0
+
+        for s in sections:
+            is_assigned = s.id in assigned_set
+            
+            if is_assigned:
+                assigned_count += 1
+            else:
+                unassigned_count += 1
+            
+            # Filter logic
+            if unassigned_only and is_assigned:
+                continue
+
+            filtered_results.append({
+                'id': s.id,
+                'name': s.name,
+                'code': s.code,
+                'course': s.course.name,
+                'year': s.year,
+                'status': 'ASSIGNED' if is_assigned else 'UNASSIGNED'
+            })
+
+        # 3. Simple slice-based pagination
+        total_items = len(filtered_results)
+        start = (page - 1) * page_size
+        end = start + page_size
+        paged_results = filtered_results[start:end]
+
+        return {
+            'total_sections': len(sections),
+            'assigned_count': assigned_count,
+            'unassigned_count': unassigned_count,
+            'pagination': {
+                'page': page,
+                'page_size': page_size,
+                'total_filtered_items': total_items,
+                'total_pages': (total_items + page_size - 1) // page_size
+            },
+            'sections': paged_results
+        }

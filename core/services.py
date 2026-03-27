@@ -21,7 +21,7 @@ class AcademicStructureService:
             return {'success': False, 'error': 'Department not found.'}
 
     @staticmethod
-    def create_section(course_id, name, code, year):
+    def create_section(course_id, name, code, year=1):
         try:
             course = Course.objects.get(id=course_id)
             section, created = Section.objects.get_or_create(
@@ -31,6 +31,69 @@ class AcademicStructureService:
             return {'success': True, 'id': section.id, 'created': created}
         except Course.DoesNotExist:
             return {'success': False, 'error': 'Course not found.'}
+
+    @staticmethod
+    def update_department(dept_id, name=None, code=None, is_active=None):
+        try:
+            dept = Department.objects.get(id=dept_id)
+            if name: dept.name = name
+            if code: dept.code = code
+            if is_active is not None: dept.is_active = is_active
+            dept.save()
+            return {'success': True}
+        except Department.DoesNotExist:
+            return {'success': False, 'error': 'Department not found.'}
+
+    @staticmethod
+    def delete_department(dept_id):
+        try:
+            dept = Department.objects.get(id=dept_id)
+            dept.delete()
+            return {'success': True}
+        except Department.DoesNotExist:
+            return {'success': False, 'error': 'Department not found.'}
+
+    @staticmethod
+    def update_course(course_id, name=None, code=None, duration_years=None):
+        try:
+            course = Course.objects.get(id=course_id)
+            if name: course.name = name
+            if code: course.code = code
+            if duration_years: course.duration_years = duration_years
+            course.save()
+            return {'success': True}
+        except Course.DoesNotExist:
+            return {'success': False, 'error': 'Course not found.'}
+
+    @staticmethod
+    def delete_course(course_id):
+        try:
+            course = Course.objects.get(id=course_id)
+            course.delete()
+            return {'success': True}
+        except Course.DoesNotExist:
+            return {'success': False, 'error': 'Course not found.'}
+
+    @staticmethod
+    def update_section(section_id, name=None, code=None, year=None):
+        try:
+            section = Section.objects.get(id=section_id)
+            if name: section.name = name
+            if code: section.code = code
+            if year: section.year = year
+            section.save()
+            return {'success': True}
+        except Section.DoesNotExist:
+            return {'success': False, 'error': 'Section not found.'}
+
+    @staticmethod
+    def delete_section(section_id):
+        try:
+            section = Section.objects.get(id=section_id)
+            section.delete()
+            return {'success': True}
+        except Section.DoesNotExist:
+            return {'success': False, 'error': 'Section not found.'}
 
     @staticmethod
     def get_departments():
@@ -74,6 +137,25 @@ class RolePermissionService:
             return {'success': False, 'error': str(e)}
 
 class CoreFilterService:
+    @staticmethod
+    def get_assignment_filters():
+        """
+        Fetch essential data for room assignment: All sections and rooms.
+        """
+        sections = Section.objects.select_related('course').all()
+        rooms = Venue.objects.select_related('floor__building').all()
+        
+        return {
+            'sections': [
+                {'id': s.id, 'name': f"{s.course.name} - {s.code}"} 
+                for s in sections
+            ],
+            'rooms': [
+                {'id': r.id, 'name': f"{r.name} ({r.floor.building.code})"} 
+                for r in rooms
+            ]
+        }
+
     @staticmethod
     def get_room_filters(building_name=None):
         """

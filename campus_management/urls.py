@@ -3,7 +3,8 @@ from .views.api_views import (
     VenueListView, AvailableVenueListView, AllocateResourceView, 
     AdminRoomCreateView, AssignRoomToClassView,
     AdminBuildingCreateView, AdminBuildingListView, AdminBuildingDetailView,
-    AdminBulkAssignSectionRoomView, AssignedVenuesOverviewView
+    AdminBulkAssignSectionRoomView, AssignedVenuesOverviewView,
+    AdminSectionAllocationSummaryView
 )
 
 urlpatterns = [
@@ -18,5 +19,6 @@ urlpatterns = [
     path('admin/buildings/create/', AdminBuildingCreateView.as_view(), name='admin-building-create'),
     path('admin/buildings/<int:pk>/', AdminBuildingDetailView.as_view(), name='admin-building-detail'),
     path('admin/sections/assign-room/', AdminBulkAssignSectionRoomView.as_view(), name='admin-bulk-assign-section-room'),
+    path('admin/sections/summary/', AdminSectionAllocationSummaryView.as_view(), name='admin-section-allocation-summary'),
     path('venues/assigned-overview/', AssignedVenuesOverviewView.as_view(), name='assigned-venues-overview'),
 ]

@@ -111,9 +111,18 @@ class AdminRoomCreateView(APIView):
         if request.user.role.code != 'ADMIN':
             return Response({'error': 'Unauthorized. Admin role required.'}, status=status.HTTP_403_FORBIDDEN)
 
-        data = request.data
+        # Normalize PascalCase to snake_case for internal logic
+        data = {
+            'building_name': request.data.get('BuildingName', request.data.get('building_name')),
+            'building_code': request.data.get('BuildingCode', request.data.get('building_code')),
+            'floor_number': request.data.get('FloorNumber', request.data.get('floor_number')),
+            'venue_name': request.data.get('VenueName', request.data.get('venue_name')),
+            'venue_type': request.data.get('VenueType', request.data.get('venue_type')),
+            'capacity': request.data.get('Capacity', request.data.get('capacity')),
+        }
+
         required_fields = ['building_name', 'building_code', 'floor_number', 'venue_name', 'venue_type', 'capacity']
-        if not all(field in data for field in required_fields):
+        if not all(data.get(field) is not None for field in required_fields):
             return Response({'error': 'Missing required fields.'}, status=status.HTTP_400_BAD_REQUEST)
 
         result = InfrastructureService.create_full_room_setup(
@@ -247,6 +256,9 @@ class AdminBulkAssignSectionRoomView(APIView):
             venue_id=venue_id
         )
 
+        if not result['success']:
+            return Response(result, status=status.HTTP_400_BAD_REQUEST)
+
         return Response(result)
 
 class AssignedVenuesOverviewView(APIView):
@@ -264,6 +276,32 @@ class AssignedVenuesOverviewView(APIView):
             return Response(status=status.HTTP_304_NOT_MODIFIED)
             
         response = Response({'assigned_venues': data})
+        response['ETag'] = f'"{etag}"'
+        return response
+
+class AdminSectionAllocationSummaryView(APIView):
+    """
+    API to get summary of all sections and their allocation status.
+    Ex: /api/campus-management/admin/sections/summary/?unassigned=true
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        if request.user.role.code != 'ADMIN':
+            return Response({'error': 'Unauthorized. Admin role required.'}, status=status.HTTP_403_FORBIDDEN)
+
+        unassigned_only = request.query_params.get('unassigned', 'false').lower() == 'true'
+        page = int(request.query_params.get('page', 1))
+        page_size = int(request.query_params.get('page_size', 20))
+
+        data = TimetableIntegrationService.get_section_allocation_summary(unassigned_only, page, page_size)
+
+        # ETag implementation
+        etag = generate_etag(data)
+        if check_etag(request, etag):
+            return Response(status=status.HTTP_304_NOT_MODIFIED)
+
+        response = Response(data)
         response['ETag'] = f'"{etag}"'
         return response
 

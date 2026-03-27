@@ -42,15 +42,19 @@ class FilterOptionsAPIView(APIView):
 
         if filter_type == 'room' or building_name:
             data = CoreFilterService.get_room_filters(building_name)
+        elif filter_type == 'assign_room':
+            data = CoreFilterService.get_assignment_filters()
+        else:
+            return Response({'error': 'Invalid filter type'}, status=status.HTTP_400_BAD_REQUEST)
             
-            # ETag implementation
-            etag = generate_etag(data)
-            if check_etag(request, etag):
-                return Response(status=status.HTTP_304_NOT_MODIFIED)
+        # ETag implementation
+        etag = generate_etag(data)
+        if check_etag(request, etag):
+            return Response(status=status.HTTP_304_NOT_MODIFIED)
                 
-            response = Response({'filters': data})
-            response['ETag'] = f'"{etag}"'
-            return response
+        response = Response({'filters': data})
+        response['ETag'] = f'"{etag}"'
+        return response
 
 from core.models import User, Section
 
@@ -170,12 +174,81 @@ class AdminSectionCreateView(APIView):
         course_id = request.data.get('course_id')
         name = request.data.get('name')
         code = request.data.get('code') # e.g. A, B
-        year = request.data.get('year')
+        year = request.data.get('year', 1)
 
-        if not course_id or not name or not code or not year:
-            return Response({'error': 'course_id, name, code and year are required.'}, status=status.HTTP_400_BAD_REQUEST)
+        if not course_id or not name or not code:
+            return Response({'error': 'course_id, name and code are required.'}, status=status.HTTP_400_BAD_REQUEST)
 
         result = AcademicStructureService.create_section(course_id, name, code, year)
         if result['success']:
             return Response(result, status=status.HTTP_201_CREATED if result['created'] else status.HTTP_200_OK)
         return Response(result, status=status.HTTP_400_BAD_REQUEST)
+
+class AdminDepartmentDetailView(APIView):
+    """
+    API for admin to update or delete a department.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request, pk):
+        if request.user.role.code != 'ADMIN':
+            return Response({'error': 'Unauthorized. Admin role required.'}, status=status.HTTP_403_FORBIDDEN)
+
+        name = request.data.get('name')
+        code = request.data.get('code')
+        is_active = request.data.get('is_active')
+        result = AcademicStructureService.update_department(pk, name, code, is_active)
+        return Response(result if result['success'] else result, status=status.HTTP_200_OK if result['success'] else status.HTTP_404_NOT_FOUND)
+
+    def delete(self, request, pk):
+        if request.user.role.code != 'ADMIN':
+            return Response({'error': 'Unauthorized. Admin role required.'}, status=status.HTTP_403_FORBIDDEN)
+
+        result = AcademicStructureService.delete_department(pk)
+        return Response(result if result['success'] else result, status=status.HTTP_200_OK if result['success'] else status.HTTP_404_NOT_FOUND)
+
+class AdminCourseDetailView(APIView):
+    """
+    API for admin to update or delete a course.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request, pk):
+        if request.user.role.code != 'ADMIN':
+            return Response({'error': 'Unauthorized. Admin role required.'}, status=status.HTTP_403_FORBIDDEN)
+
+        name = request.data.get('name')
+        code = request.data.get('code')
+        duration = request.data.get('duration_years')
+        result = AcademicStructureService.update_course(pk, name, code, duration)
+        return Response(result if result['success'] else result, status=status.HTTP_200_OK if result['success'] else status.HTTP_404_NOT_FOUND)
+
+    def delete(self, request, pk):
+        if request.user.role.code != 'ADMIN':
+            return Response({'error': 'Unauthorized. Admin role required.'}, status=status.HTTP_403_FORBIDDEN)
+
+        result = AcademicStructureService.delete_course(pk)
+        return Response(result if result['success'] else result, status=status.HTTP_200_OK if result['success'] else status.HTTP_404_NOT_FOUND)
+
+class AdminSectionDetailView(APIView):
+    """
+    API for admin to update or delete a section.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request, pk):
+        if request.user.role.code != 'ADMIN':
+            return Response({'error': 'Unauthorized. Admin role required.'}, status=status.HTTP_403_FORBIDDEN)
+
+        name = request.data.get('name')
+        code = request.data.get('code')
+        year = request.data.get('year')
+        result = AcademicStructureService.update_section(pk, name, code, year)
+        return Response(result if result['success'] else result, status=status.HTTP_200_OK if result['success'] else status.HTTP_404_NOT_FOUND)
+
+    def delete(self, request, pk):
+        if request.user.role.code != 'ADMIN':
+            return Response({'error': 'Unauthorized. Admin role required.'}, status=status.HTTP_403_FORBIDDEN)
+
+        result = AcademicStructureService.delete_section(pk)
+        return Response(result if result['success'] else result, status=status.HTTP_200_OK if result['success'] else status.HTTP_404_NOT_FOUND)
