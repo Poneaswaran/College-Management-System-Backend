@@ -271,6 +271,11 @@ class TimetableEntry(models.Model):
         on_delete=models.CASCADE,
         related_name="timetable_entries"
     )
+    allocation_id = models.IntegerField(
+        null=True, 
+        blank=True, 
+        help_text="ID of ResourceAllocation from campus_management"
+    )
     is_active = models.BooleanField(default=True)
     notes = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -305,3 +310,9 @@ class TimetableEntry(models.Model):
         is_valid, error_message = TimetableConflictValidator.validate_entry(entry_data)
         if not is_valid:
             raise ValidationError(error_message)
+
+        # Ensure that room assignment has a corresponding campus_management ResourceAllocation
+        if self.room_id and not self.allocation_id:
+            from campus_management.validators import TimetableIntegrationValidator
+            # In an actual request, the source_id might be 0 before saving, so we check if allocation_id is set
+            raise ValidationError("Timetable entry cannot bypass allocation service. Room allocation is missing.")

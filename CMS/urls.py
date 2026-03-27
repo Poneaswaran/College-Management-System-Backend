@@ -189,6 +189,8 @@ urlpatterns = [
     path('api/study-materials/', include('study_materials.urls')),
     path('api/exams/', include('exams.urls')),
     path('api/attendance/', include('attendance.urls')),
+    path('api/campus-management/', include('campus_management.urls')),
+    path('api/core/', include('core.urls')),
 ]
 
 # Serve media files in development

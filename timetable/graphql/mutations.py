@@ -7,10 +7,13 @@ from strawberry.types import Info
 from django.core.exceptions import ValidationError
 
 from profile_management.models import Semester
-from timetable.models import TimetableEntry
+from timetable.models import TimetableEntry, PeriodDefinition
 from timetable.utils import generate_periods_for_config
 from .types import TimetableEntryType
 from core.graphql.auth import require_auth
+from datetime import datetime
+from campus_management.services import ResourceAllocationService
+from campus_management.models import Resource
 
 
 @strawberry.type
@@ -51,6 +54,35 @@ class TimetableMutation:
             Exception: If validation fails or conflicts exist
         """
         try:
+            # Integrate campus_management ResourceAllocationService
+            allocation_id = None
+            if room_id:
+                try:
+                    resource = Resource.objects.get(resource_type='ROOM', reference_id=room_id)
+                except Resource.DoesNotExist:
+                    resource = Resource.objects.create(resource_type='ROOM', reference_id=room_id)
+                
+                # Fetch period directly to get timings
+                period = PeriodDefinition.objects.get(id=period_definition_id)
+                
+                # Create a representative dummy datetime for weekly recurring class (e.g. week of Jan 1, 1900)
+                dummy_date = datetime(1900, 1, period.day_of_week)
+                start_time = datetime.combine(dummy_date, period.start_time)
+                end_time = datetime.combine(dummy_date, period.end_time)
+
+                allocation_result = ResourceAllocationService.allocate(
+                    resource=resource,
+                    start_time=start_time,
+                    end_time=end_time,
+                    allocation_type='CLASS',
+                    source_app='timetable',
+                    source_id=0  # Temporary source_id, updated after save
+                )
+                
+                if not allocation_result['success']:
+                    raise ValidationError(f"Room allocation failed: {allocation_result['error']}")
+                allocation_id = allocation_result['allocation'].id
+
             # Create entry
             entry = TimetableEntry(
                 section_id=section_id,
@@ -59,6 +91,7 @@ class TimetableMutation:
                 period_definition_id=period_definition_id,
                 semester_id=semester_id,
                 room_id=room_id,
+                allocation_id=allocation_id,
                 notes=notes or "",
                 is_active=True
             )
@@ -69,6 +102,11 @@ class TimetableMutation:
             # Save
             entry.save()
             
+            if allocation_id:
+                allocation = allocation_result['allocation']
+                allocation.source_id = entry.id
+                allocation.save()
+                
             # Refresh from database with relations
             entry.refresh_from_db()
             return entry
@@ -120,7 +158,36 @@ class TimetableMutation:
             if faculty_id is not None:
                 entry.faculty_id = faculty_id
             
-            if room_id is not None:
+            # Integrate campus_management ResourceAllocationService if room changes
+            if room_id is not None and room_id != entry.room_id:
+                if entry.allocation_id:
+                    ResourceAllocationService.release(entry.allocation_id)
+                    entry.allocation_id = None
+                
+                if room_id: # Only allocate if there's a new room
+                    try:
+                        resource = Resource.objects.get(resource_type='ROOM', reference_id=room_id)
+                    except Resource.DoesNotExist:
+                        resource = Resource.objects.create(resource_type='ROOM', reference_id=room_id)
+                    
+                    period = entry.period_definition
+                    dummy_date = datetime(1900, 1, period.day_of_week)
+                    start_time = datetime.combine(dummy_date, period.start_time)
+                    end_time = datetime.combine(dummy_date, period.end_time)
+
+                    allocation_result = ResourceAllocationService.allocate(
+                        resource=resource,
+                        start_time=start_time,
+                        end_time=end_time,
+                        allocation_type='CLASS',
+                        source_app='timetable',
+                        source_id=entry.id
+                    )
+                    
+                    if not allocation_result['success']:
+                        raise ValidationError(f"Room allocation failed: {allocation_result['error']}")
+                    
+                    entry.allocation_id = allocation_result['allocation'].id
                 entry.room_id = room_id
             
             if notes is not None:
@@ -128,6 +195,9 @@ class TimetableMutation:
             
             if is_active is not None:
                 entry.is_active = is_active
+                if not is_active and entry.allocation_id:
+                    ResourceAllocationService.release(entry.allocation_id)
+                    entry.allocation_id = None
             
             # Validate
             entry.full_clean()
@@ -180,6 +250,11 @@ class TimetableMutation:
             # Soft delete (set is_active to False)
             entry.is_active = False
             entry.save()
+            
+            if entry.allocation_id:
+                ResourceAllocationService.release(entry.allocation_id)
+                entry.allocation_id = None
+                entry.save()
             
             return True
             

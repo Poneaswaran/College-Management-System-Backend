@@ -52,6 +52,7 @@ INSTALLED_APPS = [
     "exams",
     "study_materials",
     "onboarding",
+    "campus_management",
 ]
 
 try:

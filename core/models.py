@@ -76,6 +76,31 @@ class Role(models.Model):
     def __str__(self):
         return self.name
 
+class Permission(models.Model):
+    code = models.CharField(max_length=100, unique=True) # e.g. "allocate_room"
+    
+    def __str__(self):
+        return self.code
+
+class RolePermission(models.Model):
+    role = models.ForeignKey(Role, on_delete=models.CASCADE, related_name="permissions")
+    permission = models.ForeignKey(Permission, on_delete=models.CASCADE, related_name="roles")
+
+    class Meta:
+        unique_together = ("role", "permission")
+        
+    def __str__(self):
+        return f"{self.role.code} - {self.permission.code}"
+
+class UserRole(models.Model):
+    user = models.ForeignKey('core.User', on_delete=models.CASCADE, related_name="additional_roles")
+    role = models.ForeignKey(Role, on_delete=models.CASCADE, related_name="assigned_users")
+
+    class Meta:
+        unique_together = ("user", "role")
+
+    def __str__(self):
+        return f"{self.user} - {self.role.code}"
 
 # ==================================================
 # USER AUTH MODELS
