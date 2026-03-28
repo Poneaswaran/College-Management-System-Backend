@@ -68,6 +68,46 @@ class StudyMaterialMutationResponseSerializer(serializers.ModelSerializer):
         ]
 
 
+class StudyMaterialListSerializer(serializers.ModelSerializer):
+    """List serializer for study materials returned in REST query endpoints."""
+
+    file_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = StudyMaterial
+        fields = [
+            'id',
+            'title',
+            'description',
+            'material_type',
+            'status',
+            'subject',
+            'section',
+            'faculty',
+            'file',
+            'file_url',
+            'file_size',
+            'view_count',
+            'download_count',
+            'vectorization_status',
+            'vector_document_id',
+            'last_indexed_at',
+            'vector_error_message',
+            'uploaded_at',
+            'updated_at',
+            'published_at',
+        ]
+
+    def get_file_url(self, obj):
+        request = self.context.get('request')
+        if not obj.file:
+            return ''
+        url = obj.file.url
+        if request is not None:
+            return request.build_absolute_uri(url)
+        return url
+
+
 class StudyMaterialUpdateSerializer(serializers.ModelSerializer):
     """Validate and update study material fields for REST mutation parity."""
 

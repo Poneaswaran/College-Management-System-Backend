@@ -619,3 +619,148 @@ class StudyMaterialMutationParityAPITests(StudyMaterialAITestMixin, TestCase):
 		response = self.api_client.post(f"/api/study-materials/{material.id}/record-download/")
 
 		self.assertEqual(response.status_code, 403)
+
+
+class StudyMaterialMyUploadedAPITests(StudyMaterialAITestMixin, TestCase):
+	"""Integration tests for faculty-only uploaded materials REST endpoint."""
+
+	def setUp(self) -> None:
+		super().setUp()
+		self.api_client = APIClient()
+		self.url = "/api/study-materials/my-uploaded/"
+
+	def test_my_uploaded_returns_only_authenticated_faculty_materials(self) -> None:
+		my_material = self.create_material(status="DRAFT")
+		other_faculty = self._create_user("other.faculty@example.com", self.faculty_role)
+		StudyMaterial.objects.create(
+			subject=self.subject,
+			section=self.section_a,
+			faculty=other_faculty,
+			title="Other Faculty Material",
+			description="Should not appear",
+			material_type="NOTES",
+			file=SimpleUploadedFile("other.pdf", b"%PDF-1.4 other", content_type="application/pdf"),
+			status="DRAFT",
+		)
+
+		self.api_client.force_authenticate(user=self.faculty_user)
+		response = self.api_client.get(self.url)
+
+		self.assertEqual(response.status_code, 200)
+		self.assertEqual(response.data["count"], 1)
+		self.assertEqual(response.data["results"][0]["id"], my_material.id)
+		self.assertEqual(response.data["results"][0]["faculty"], self.faculty_user.id)
+
+	def test_my_uploaded_supports_status_filter(self) -> None:
+		draft_material = self.create_material(status="DRAFT")
+		self.create_material(
+			status="ARCHIVED",
+			vectorization_status="PENDING",
+			vector_document_id="",
+		)
+
+		self.api_client.force_authenticate(user=self.faculty_user)
+		response = self.api_client.get(self.url, {"status": "draft"})
+
+		self.assertEqual(response.status_code, 200)
+		self.assertEqual(response.data["count"], 1)
+		self.assertEqual(response.data["results"][0]["id"], draft_material.id)
+		self.assertEqual(response.data["results"][0]["status"], "DRAFT")
+
+	def test_my_uploaded_rejects_invalid_status_filter(self) -> None:
+		self.create_material(status="DRAFT")
+		self.api_client.force_authenticate(user=self.faculty_user)
+
+		response = self.api_client.get(self.url, {"status": "invalid-status"})
+
+		self.assertEqual(response.status_code, 400)
+		self.assertIn("Invalid status filter", response.data["detail"])
+
+	def test_my_uploaded_denies_student_role(self) -> None:
+		self.create_material(status="DRAFT")
+		self.api_client.force_authenticate(user=self.student_a_user)
+
+		response = self.api_client.get(self.url)
+
+		self.assertEqual(response.status_code, 403)
+
+
+class StudyMaterialAvailableForStudentAPITests(StudyMaterialAITestMixin, TestCase):
+	"""Integration tests for student available materials REST endpoint."""
+
+	def setUp(self) -> None:
+		super().setUp()
+		self.api_client = APIClient()
+		self.url = "/api/study-materials/available-for-student/"
+
+	def test_available_for_student_returns_only_published_materials_for_student_section(self) -> None:
+		published_same_section = self.create_material(
+			section=self.section_a,
+			status="DRAFT",
+		)
+		StudyMaterial.objects.filter(id=published_same_section.id).update(status="PUBLISHED")
+		self.create_material(
+			section=self.section_a,
+			status="DRAFT",
+			vectorization_status="PENDING",
+			vector_document_id="",
+		)
+		other_section_published = self.create_material(
+			section=self.section_b,
+			status="DRAFT",
+		)
+		StudyMaterial.objects.filter(id=other_section_published.id).update(status="PUBLISHED")
+
+		self.api_client.force_authenticate(user=self.student_a_user)
+		response = self.api_client.get(self.url)
+
+		self.assertEqual(response.status_code, 200)
+		self.assertEqual(response.data["count"], 1)
+		self.assertEqual(response.data["results"][0]["id"], published_same_section.id)
+		self.assertEqual(response.data["results"][0]["section"], self.section_a.id)
+		self.assertEqual(response.data["results"][0]["status"], "PUBLISHED")
+
+	def test_available_for_student_supports_material_type_filter(self) -> None:
+		notes_material = self.create_material(
+			section=self.section_a,
+			status="DRAFT",
+		)
+		StudyMaterial.objects.filter(id=notes_material.id).update(
+			status="PUBLISHED",
+			material_type="NOTES",
+		)
+		book_material = self.create_material(
+			section=self.section_a,
+			status="DRAFT",
+		)
+		StudyMaterial.objects.filter(id=book_material.id).update(
+			status="PUBLISHED",
+			material_type="BOOK",
+		)
+
+		self.api_client.force_authenticate(user=self.student_a_user)
+		response = self.api_client.get(self.url, {"material_type": "notes"})
+
+		self.assertEqual(response.status_code, 200)
+		self.assertEqual(response.data["count"], 1)
+		self.assertEqual(response.data["results"][0]["id"], notes_material.id)
+		self.assertEqual(response.data["results"][0]["material_type"], "NOTES")
+
+	def test_available_for_student_rejects_invalid_material_type_filter(self) -> None:
+		material = self.create_material(section=self.section_a, status="DRAFT")
+		StudyMaterial.objects.filter(id=material.id).update(status="PUBLISHED")
+		self.api_client.force_authenticate(user=self.student_a_user)
+
+		response = self.api_client.get(self.url, {"material_type": "INVALID"})
+
+		self.assertEqual(response.status_code, 400)
+		self.assertIn("Invalid material_type filter", response.data["detail"])
+
+	def test_available_for_student_denies_non_student(self) -> None:
+		material = self.create_material(section=self.section_a, status="DRAFT")
+		StudyMaterial.objects.filter(id=material.id).update(status="PUBLISHED")
+		self.api_client.force_authenticate(user=self.faculty_user)
+
+		response = self.api_client.get(self.url)
+
+		self.assertEqual(response.status_code, 403)

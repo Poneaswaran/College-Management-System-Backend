@@ -6,12 +6,17 @@ from rest_framework.response import Response
 from study_materials.ai_chat_service import StudyMaterialChatService
 from study_materials.exceptions import AIServiceUnavailableError
 from study_materials.throttles import AIChatUserThrottle
-from study_materials.utils import record_material_download, record_material_view
+from study_materials.utils import (
+    get_student_materials,
+    record_material_download,
+    record_material_view,
+)
 from study_materials.validators import StudyMaterialValidator
 
 from .models import StudyMaterial
 from .serializers import (
     AIChatRequestSerializer,
+    StudyMaterialListSerializer,
     StudyMaterialMutationResponseSerializer,
     StudyMaterialUpdateSerializer,
     StudyMaterialUploadSerializer,
@@ -76,6 +81,103 @@ class StudyMaterialAIChatView(APIView):
             {
                 "answer": result.get("answer", ""),
                 "sources": result.get("sources", []),
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class StudyMaterialMyUploadedListView(APIView):
+    """Return study materials uploaded by the authenticated faculty user."""
+
+    from core.auth import JWTAuthentication
+
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        role_code = getattr(getattr(request.user, "role", None), "code", "")
+        if role_code not in {"FACULTY", "HOD", "ADMIN"}:
+            raise PermissionDenied("Only faculty, HOD, or admin can access uploaded materials")
+
+        materials = StudyMaterial.objects.filter(faculty=request.user).select_related(
+            "subject",
+            "section",
+            "faculty",
+        )
+
+        status_filter = (request.query_params.get("status") or "").strip().upper()
+        if status_filter:
+            valid_statuses = {choice[0] for choice in StudyMaterial.STATUS_CHOICES}
+            if status_filter not in valid_statuses:
+                return Response(
+                    {
+                        "detail": (
+                            "Invalid status filter. "
+                            f"Allowed values: {', '.join(sorted(valid_statuses))}."
+                        )
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            materials = materials.filter(status=status_filter)
+
+        materials = materials.order_by("-uploaded_at")
+        serializer = StudyMaterialListSerializer(
+            materials,
+            many=True,
+            context={"request": request},
+        )
+        return Response(
+            {
+                "count": len(serializer.data),
+                "results": serializer.data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class StudyMaterialAvailableForStudentListView(APIView):
+    """Return published study materials available to the authenticated student."""
+
+    from core.auth import JWTAuthentication
+
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        role_code = getattr(getattr(request.user, "role", None), "code", "")
+        if role_code != "STUDENT":
+            raise PermissionDenied("Only students can access available study materials")
+
+        materials = get_student_materials(request.user)
+
+        subject_id = request.query_params.get("subject_id")
+        if subject_id:
+            materials = materials.filter(subject_id=subject_id)
+
+        material_type = (request.query_params.get("material_type") or "").strip().upper()
+        if material_type:
+            valid_types = {choice[0] for choice in StudyMaterial.MATERIAL_TYPE_CHOICES}
+            if material_type not in valid_types:
+                return Response(
+                    {
+                        "detail": (
+                            "Invalid material_type filter. "
+                            f"Allowed values: {', '.join(sorted(valid_types))}."
+                        )
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            materials = materials.filter(material_type=material_type)
+
+        serializer = StudyMaterialListSerializer(
+            materials.order_by("-published_at", "-uploaded_at"),
+            many=True,
+            context={"request": request},
+        )
+        return Response(
+            {
+                "count": len(serializer.data),
+                "results": serializer.data,
             },
             status=status.HTTP_200_OK,
         )

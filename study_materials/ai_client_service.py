@@ -49,9 +49,16 @@ class AIClientService:
             getattr(settings, "AI_SERVICE_SOURCE_HEADER", "django-cms-backend")
         )
 
-        connect_timeout = float(getattr(settings, "AI_SERVICE_CONNECT_TIMEOUT_SECONDS", 5))
-        read_timeout = float(getattr(settings, "AI_SERVICE_TIMEOUT_SECONDS", 20))
-        self._timeout = (connect_timeout, read_timeout)
+        connect_timeout_raw = float(getattr(settings, "AI_SERVICE_CONNECT_TIMEOUT_SECONDS", 5))
+        read_timeout_raw = float(getattr(settings, "AI_SERVICE_TIMEOUT_SECONDS", 20))
+
+        # Allow timeout disablement using non-positive values.
+        connect_timeout = connect_timeout_raw if connect_timeout_raw > 0 else None
+        read_timeout = read_timeout_raw if read_timeout_raw > 0 else None
+        if connect_timeout is None and read_timeout is None:
+            self._timeout = None
+        else:
+            self._timeout = (connect_timeout, read_timeout)
 
     def ingest_document(
         self,
