@@ -5,6 +5,7 @@ from django.contrib.auth.models import (
     BaseUserManager
 )
 from django.utils import timezone
+from django.core.exceptions import ObjectDoesNotExist
 
 
 # ==================================================
@@ -179,6 +180,24 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     def __str__(self):
         return self.email or self.register_number
+
+    def get_full_name(self):
+        """Return the best available display name for this user."""
+        try:
+            faculty_profile = self.faculty_profile
+            if faculty_profile and faculty_profile.full_name:
+                return faculty_profile.full_name
+        except ObjectDoesNotExist:
+            pass
+
+        try:
+            student_profile = self.student_profile
+            if student_profile and student_profile.full_name:
+                return student_profile.full_name
+        except ObjectDoesNotExist:
+            pass
+
+        return self.email or self.register_number or "User"
 
 
 # ==================================================

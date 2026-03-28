@@ -8,6 +8,7 @@ from .serializers import (
 )
 from .services import TimetableService
 from django.core.exceptions import ValidationError
+from core.models import Section
 
 
 class SectionTimetableListView(APIView):
@@ -55,8 +56,13 @@ class PeriodDefinitionListView(APIView):
 
     def get(self, request):
         semester_id = request.query_params.get('semester_id')
-        if not semester_id:
-            return Response({'error': 'semester_id is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        section_id = request.query_params.get('section_id')
+
+        if not semester_id or not section_id:
+            return Response({'error': 'semester_id and section_id are required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not Section.objects.filter(id=section_id).exists():
+            return Response({'error': 'Section not found.'}, status=status.HTTP_404_NOT_FOUND)
             
         periods = PeriodDefinition.objects.filter(semester_id=semester_id).order_by('day_of_week', 'period_number')
         serializer = PeriodDefinitionSerializer(periods, many=True)

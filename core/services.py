@@ -1,7 +1,8 @@
 from typing import List, Dict, Union
-from django.core.exceptions import ObjectDoesNotExist
+from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from core.models import Role, Permission, RolePermission, Department, Course, Section, User
-from timetable.models import PeriodDefinition
+from timetable.models import PeriodDefinition, Subject
+from profile_management.models import AcademicYear, Semester
 
 class AcademicStructureService:
     @staticmethod
@@ -32,6 +33,57 @@ class AcademicStructureService:
             return {'success': True, 'id': section.id, 'created': created}
         except Course.DoesNotExist:
             return {'success': False, 'error': 'Course not found.'}
+
+    @staticmethod
+    def create_academic_year(year_code, start_date, end_date, is_current=False):
+        existing = AcademicYear.objects.filter(year_code=year_code).first()
+        if existing:
+            return {'success': True, 'id': existing.id, 'created': False}
+
+        try:
+            academic_year = AcademicYear(
+                year_code=year_code,
+                start_date=start_date,
+                end_date=end_date,
+                is_current=is_current,
+            )
+            academic_year.full_clean()
+            academic_year.save()
+            return {'success': True, 'id': academic_year.id, 'created': True}
+        except ValidationError as e:
+            if hasattr(e, 'message_dict'):
+                return {'success': False, 'error': e.message_dict}
+            return {'success': False, 'error': str(e)}
+
+    @staticmethod
+    def create_semester(academic_year_id, number, start_date, end_date, is_current=False):
+        try:
+            academic_year = AcademicYear.objects.get(id=academic_year_id)
+        except AcademicYear.DoesNotExist:
+            return {'success': False, 'error': 'Academic year not found.'}
+
+        if number not in [1, 2]:
+            return {'success': False, 'error': 'number must be 1 (Odd Semester) or 2 (Even Semester).'}
+
+        existing = Semester.objects.filter(academic_year=academic_year, number=number).first()
+        if existing:
+            return {'success': True, 'id': existing.id, 'created': False}
+
+        try:
+            semester = Semester(
+                academic_year=academic_year,
+                number=number,
+                start_date=start_date,
+                end_date=end_date,
+                is_current=is_current,
+            )
+            semester.full_clean()
+            semester.save()
+            return {'success': True, 'id': semester.id, 'created': True}
+        except ValidationError as e:
+            if hasattr(e, 'message_dict'):
+                return {'success': False, 'error': e.message_dict}
+            return {'success': False, 'error': str(e)}
 
     @staticmethod
     def update_department(dept_id, name=None, code=None, is_active=None):
@@ -107,6 +159,67 @@ class AcademicStructureService:
             'department_name': c.department.name,
             'duration_years': c.duration_years
         } for c in Course.objects.select_related('department').all()]
+
+    @staticmethod
+    def get_academic_years(page=1, page_size=20, is_current=None):
+        if page < 1:
+            page = 1
+        if page_size < 1:
+            page_size = 20
+        if page_size > 100:
+            page_size = 100
+
+        qs = AcademicYear.objects.all().order_by('-start_date')
+        if is_current is not None:
+            qs = qs.filter(is_current=is_current)
+
+        total_items = qs.count()
+        start = (page - 1) * page_size
+        end = start + page_size
+
+        years = qs[start:end]
+        data = [
+            {
+                'id': y.id,
+                'year_code': y.year_code,
+                'start_date': y.start_date.isoformat(),
+                'end_date': y.end_date.isoformat(),
+                'is_current': y.is_current,
+            }
+            for y in years
+        ]
+
+        return {
+            'academic_years': data,
+            'pagination': {
+                'page': page,
+                'page_size': page_size,
+                'total_items': total_items,
+                'total_pages': (total_items + page_size - 1) // page_size,
+            },
+        }
+
+    @staticmethod
+    def get_semesters(academic_year_id=None, is_current=None):
+        qs = Semester.objects.select_related('academic_year').all().order_by('-academic_year__start_date', 'number')
+        if academic_year_id:
+            qs = qs.filter(academic_year_id=academic_year_id)
+        if is_current is not None:
+            qs = qs.filter(is_current=is_current)
+
+        return [
+            {
+                'id': s.id,
+                'academic_year_id': s.academic_year_id,
+                'academic_year_code': s.academic_year.year_code,
+                'number': s.number,
+                'number_display': s.get_number_display(),
+                'start_date': s.start_date.isoformat(),
+                'end_date': s.end_date.isoformat(),
+                'is_current': s.is_current,
+            }
+            for s in qs
+        ]
 from campus_management.models import Building, Floor, Venue
 from django.db.models import Count, Sum
 from django.db import transaction
@@ -212,34 +325,67 @@ class CoreFilterService:
         return buildings_data
 
     @staticmethod
-    def get_timetable_filters(semester_id=None):
+    def get_timetable_filters(
+        semester_id=None,
+        section_id=None,
+        faculty_id=None,
+        room_id=None,
+        period_definition_id=None,
+        subject_id=None,
+    ):
         """
         Fetch all filters required to build a timetable:
-        Sections, Faculty, Rooms, and Periods.
+        Subjects, Sections, Faculty, Rooms, and Periods.
         """
+        # 1. Subjects
+        subjects = Subject.objects.select_related('department').filter(is_active=True)
+        if subject_id:
+            subjects = subjects.filter(id=subject_id)
+
         # 1. Sections
         sections = Section.objects.select_related('course').all()
+        if section_id:
+            sections = sections.filter(id=section_id)
         
         # 2. Faculty (Users with role code 'FACULTY')
         faculties = User.objects.filter(role__code='FACULTY', is_active=True)
+        if faculty_id:
+            faculties = faculties.filter(id=faculty_id)
         
         # 3. Rooms (Venues)
         rooms = Venue.objects.select_related('floor__building').filter(is_active=True)
+        if room_id:
+            rooms = rooms.filter(id=room_id)
         
         # 4. Periods (Filtered by semester_id if provided)
         periods_query = PeriodDefinition.objects.all()
         if semester_id:
             periods_query = periods_query.filter(semester_id=semester_id)
+        if period_definition_id:
+            periods_query = periods_query.filter(id=period_definition_id)
         
         periods = periods_query.select_related('semester', 'semester__academic_year').order_by('day_of_week', 'period_number')
 
         return {
+            'subjects': [
+                {
+                    'subject_id': s.id,
+                    'subject_name': s.name,
+                    'subject_code': s.code,
+                    'department_code': s.department.code,
+                    'semester_number': s.semester_number,
+                }
+                for s in subjects.order_by('code')
+            ],
             'sections': [
                 {'section_id': s.id, 'section_name': f"{s.course.code} {s.year}-{s.name}"} 
                 for s in sections
             ],
             'faculties': [
-                {'faculty_id': f.id, 'faculty_name': f.get_full_name() or f.username} 
+                {
+                    'faculty_id': f.id,
+                    'faculty_name': f.get_full_name() or f.email or f.register_number or 'Faculty'
+                }
                 for f in faculties
             ],
             'rooms': [

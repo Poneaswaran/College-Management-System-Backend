@@ -2,6 +2,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
+from datetime import datetime
 from core.services import RolePermissionService, CoreFilterService, AcademicStructureService
 
 class AssignPermissionAPIView(APIView):
@@ -36,6 +37,16 @@ class FilterOptionsAPIView(APIView):
     """
     permission_classes = [IsAuthenticated]
 
+    @staticmethod
+    def _parse_optional_int_param(request, key):
+        value = request.query_params.get(key)
+        if value in (None, ''):
+            return None, None
+        try:
+            return int(value), None
+        except (TypeError, ValueError):
+            return None, f'{key} must be an integer.'
+
     def get(self, request):
         filter_type = request.query_params.get('type')
         building_name = request.query_params.get('building_name')
@@ -45,8 +56,23 @@ class FilterOptionsAPIView(APIView):
         elif filter_type == 'assign_room':
             data = CoreFilterService.get_assignment_filters()
         elif filter_type == 'timetable':
-            semester_id = request.query_params.get('semester_id')
-            data = CoreFilterService.get_timetable_filters(semester_id)
+            param_keys = [
+                'semester_id',
+                'subject_id',
+                'section_id',
+                'faculty_id',
+                'room_id',
+                'period_definition_id',
+            ]
+
+            parsed_params = {}
+            for key in param_keys:
+                parsed_value, error = self._parse_optional_int_param(request, key)
+                if error:
+                    return Response({'error': error}, status=status.HTTP_400_BAD_REQUEST)
+                parsed_params[key] = parsed_value
+
+            data = CoreFilterService.get_timetable_filters(**parsed_params)
         else:
             return Response({'error': 'Invalid filter type'}, status=status.HTTP_400_BAD_REQUEST)
             
@@ -118,6 +144,87 @@ class CourseListView(APIView):
         response['ETag'] = f'"{etag}"'
         return response
 
+
+class AcademicYearListView(APIView):
+    """
+    API to list academic years with pagination.
+    Optional query params: page, page_size, is_current
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        page = request.query_params.get('page', '1')
+        page_size = request.query_params.get('page_size', '20')
+        is_current = request.query_params.get('is_current')
+
+        try:
+            page = int(page)
+            page_size = int(page_size)
+        except (TypeError, ValueError):
+            return Response({'error': 'page and page_size must be integers.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if page < 1 or page_size < 1:
+            return Response({'error': 'page and page_size must be greater than 0.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if is_current is not None:
+            is_current_text = str(is_current).strip().lower()
+            if is_current_text in ('true', '1', 'yes', 'y'):
+                is_current = True
+            elif is_current_text in ('false', '0', 'no', 'n'):
+                is_current = False
+            else:
+                return Response({'error': 'is_current must be a boolean value.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        data = AcademicStructureService.get_academic_years(
+            page=page,
+            page_size=page_size,
+            is_current=is_current,
+        )
+        etag = generate_etag(data)
+        if check_etag(request, etag):
+            return Response(status=status.HTTP_304_NOT_MODIFIED)
+        response = Response(data)
+        response['ETag'] = f'"{etag}"'
+        return response
+
+
+class SemesterListView(APIView):
+    """
+    API to list semesters.
+    Optional query params: academic_year_id, is_current
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        academic_year_id = request.query_params.get('academic_year_id')
+        is_current = request.query_params.get('is_current')
+
+        if academic_year_id:
+            try:
+                academic_year_id = int(academic_year_id)
+            except (TypeError, ValueError):
+                return Response({'error': 'academic_year_id must be an integer.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if is_current is not None:
+            is_current_text = str(is_current).strip().lower()
+            if is_current_text in ('true', '1', 'yes', 'y'):
+                is_current = True
+            elif is_current_text in ('false', '0', 'no', 'n'):
+                is_current = False
+            else:
+                return Response({'error': 'is_current must be a boolean value.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        data = AcademicStructureService.get_semesters(
+            academic_year_id=academic_year_id,
+            is_current=is_current,
+        )
+        etag = generate_etag(data)
+        if check_etag(request, etag):
+            return Response(status=status.HTTP_304_NOT_MODIFIED)
+        response = Response({'semesters': data})
+        response['ETag'] = f'"{etag}"'
+        return response
+
 from core.models import Department, Course
 
 class AdminDepartmentCreateView(APIView):
@@ -183,6 +290,148 @@ class AdminSectionCreateView(APIView):
             return Response({'error': 'course_id, name and code are required.'}, status=status.HTTP_400_BAD_REQUEST)
 
         result = AcademicStructureService.create_section(course_id, name, code, year)
+        if result['success']:
+            return Response(result, status=status.HTTP_201_CREATED if result['created'] else status.HTTP_200_OK)
+        return Response(result, status=status.HTTP_400_BAD_REQUEST)
+
+
+class AdminAcademicYearCreateView(APIView):
+    """
+    API for admin to create a new academic year.
+    Sample payload: {"year_code": "2026-27", "start_date": "2026-07-01", "end_date": "2027-06-30", "is_current": true}
+    """
+    permission_classes = [IsAuthenticated]
+
+    @staticmethod
+    def _parse_date(date_value, key):
+        try:
+            return datetime.strptime(date_value, '%Y-%m-%d').date(), None
+        except (TypeError, ValueError):
+            return None, f'{key} must be in YYYY-MM-DD format.'
+
+    @staticmethod
+    def _parse_bool(value, key):
+        if isinstance(value, bool):
+            return value, None
+        if isinstance(value, (int, float)):
+            return bool(value), None
+        if isinstance(value, str):
+            lowered = value.strip().lower()
+            if lowered in ('true', '1', 'yes', 'y'):
+                return True, None
+            if lowered in ('false', '0', 'no', 'n'):
+                return False, None
+        return None, f'{key} must be a boolean value.'
+
+    def post(self, request):
+        if request.user.role.code != 'ADMIN':
+            return Response({'error': 'Unauthorized. Admin role required.'}, status=status.HTTP_403_FORBIDDEN)
+
+        year_code = request.data.get('year_code')
+        start_date_raw = request.data.get('start_date')
+        end_date_raw = request.data.get('end_date')
+        is_current_raw = request.data.get('is_current', False)
+
+        if not year_code or not start_date_raw or not end_date_raw:
+            return Response(
+                {'error': 'year_code, start_date, and end_date are required.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        start_date, start_error = self._parse_date(start_date_raw, 'start_date')
+        if start_error:
+            return Response({'error': start_error}, status=status.HTTP_400_BAD_REQUEST)
+
+        end_date, end_error = self._parse_date(end_date_raw, 'end_date')
+        if end_error:
+            return Response({'error': end_error}, status=status.HTTP_400_BAD_REQUEST)
+
+        is_current, is_current_error = self._parse_bool(is_current_raw, 'is_current')
+        if is_current_error:
+            return Response({'error': is_current_error}, status=status.HTTP_400_BAD_REQUEST)
+
+        result = AcademicStructureService.create_academic_year(
+            year_code=year_code,
+            start_date=start_date,
+            end_date=end_date,
+            is_current=is_current,
+        )
+
+        if result['success']:
+            return Response(result, status=status.HTTP_201_CREATED if result['created'] else status.HTTP_200_OK)
+        return Response(result, status=status.HTTP_400_BAD_REQUEST)
+
+
+class AdminSemesterCreateView(APIView):
+    """
+    API for admin to create a new semester.
+    Sample payload: {"academic_year_id": 1, "number": 1, "start_date": "2026-07-01", "end_date": "2026-12-15", "is_current": true}
+    """
+    permission_classes = [IsAuthenticated]
+
+    @staticmethod
+    def _parse_date(date_value, key):
+        try:
+            return datetime.strptime(date_value, '%Y-%m-%d').date(), None
+        except (TypeError, ValueError):
+            return None, f'{key} must be in YYYY-MM-DD format.'
+
+    @staticmethod
+    def _parse_bool(value, key):
+        if isinstance(value, bool):
+            return value, None
+        if isinstance(value, (int, float)):
+            return bool(value), None
+        if isinstance(value, str):
+            lowered = value.strip().lower()
+            if lowered in ('true', '1', 'yes', 'y'):
+                return True, None
+            if lowered in ('false', '0', 'no', 'n'):
+                return False, None
+        return None, f'{key} must be a boolean value.'
+
+    def post(self, request):
+        if request.user.role.code != 'ADMIN':
+            return Response({'error': 'Unauthorized. Admin role required.'}, status=status.HTTP_403_FORBIDDEN)
+
+        academic_year_id = request.data.get('academic_year_id')
+        number = request.data.get('number')
+        start_date_raw = request.data.get('start_date')
+        end_date_raw = request.data.get('end_date')
+        is_current_raw = request.data.get('is_current', False)
+
+        if not academic_year_id or number is None or not start_date_raw or not end_date_raw:
+            return Response(
+                {'error': 'academic_year_id, number, start_date, and end_date are required.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            academic_year_id = int(academic_year_id)
+            number = int(number)
+        except (TypeError, ValueError):
+            return Response({'error': 'academic_year_id and number must be integers.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        start_date, start_error = self._parse_date(start_date_raw, 'start_date')
+        if start_error:
+            return Response({'error': start_error}, status=status.HTTP_400_BAD_REQUEST)
+
+        end_date, end_error = self._parse_date(end_date_raw, 'end_date')
+        if end_error:
+            return Response({'error': end_error}, status=status.HTTP_400_BAD_REQUEST)
+
+        is_current, is_current_error = self._parse_bool(is_current_raw, 'is_current')
+        if is_current_error:
+            return Response({'error': is_current_error}, status=status.HTTP_400_BAD_REQUEST)
+
+        result = AcademicStructureService.create_semester(
+            academic_year_id=academic_year_id,
+            number=number,
+            start_date=start_date,
+            end_date=end_date,
+            is_current=is_current,
+        )
+
         if result['success']:
             return Response(result, status=status.HTTP_201_CREATED if result['created'] else status.HTTP_200_OK)
         return Response(result, status=status.HTTP_400_BAD_REQUEST)
