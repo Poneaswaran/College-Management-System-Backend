@@ -3,15 +3,18 @@ GraphQL Mutations for Study Materials System
 """
 import strawberry
 from typing import Optional
+from django.conf import settings
 from django.utils import timezone
 from django.core.files.base import ContentFile
 import base64
 import os
 
+from study_materials.ai_chat_service import StudyMaterialChatService
 from study_materials.models import StudyMaterial, StudyMaterialDownload, StudyMaterialView
 from study_materials.validators import StudyMaterialValidator
 from study_materials.utils import record_material_view, record_material_download
 from study_materials.graphql.types import (
+    AIChatResponseType,
     StudyMaterialType,
     UploadStudyMaterialInput,
     UpdateStudyMaterialInput,
@@ -381,4 +384,52 @@ class StudyMaterialMutation:
             return RecordDownloadResponse(
                 success=False,
                 message=f"Error recording view: {str(e)}"
+            )
+
+    @strawberry.mutation
+    @require_auth
+    def ask_ai_tutor(
+        self,
+        info,
+        material_id: strawberry.ID,
+        message: str,
+    ) -> AIChatResponseType:
+        """Ask the AI tutor a question about a specific study material."""
+        user = info.context.request.user
+
+        max_length = int(getattr(settings, "AI_CHAT_MAX_MESSAGE_LENGTH", 1000))
+        cleaned_message = (message or "").strip()
+        if not cleaned_message:
+            return AIChatResponseType(answer="", sources=[], error="Message cannot be empty")
+
+        if len(cleaned_message) > max_length:
+            return AIChatResponseType(
+                answer="",
+                sources=[],
+                error=f"Message cannot exceed {max_length} characters",
+            )
+
+        if user.role.code not in {"STUDENT", "FACULTY"}:
+            return AIChatResponseType(
+                answer="",
+                sources=[],
+                error="Only active students or faculty can access the AI tutor",
+            )
+
+        try:
+            result = StudyMaterialChatService.ask_question(
+                user=user,
+                material_id=int(material_id),
+                message=cleaned_message,
+            )
+            return AIChatResponseType(
+                answer=str(result.get("answer", "")),
+                sources=[str(source) for source in result.get("sources", [])],
+                error=None,
+            )
+        except Exception as exc:
+            return AIChatResponseType(
+                answer="",
+                sources=[],
+                error=str(exc),
             )

@@ -24,6 +24,7 @@ qrcode==7.4.2
 pytz==2025.2
 redis==5.0.1
 reportlab==4.2.5
+requests==2.32.3
 six==1.17.0
 sqlparse==0.5.5
 strawberry-graphql==0.288.0
