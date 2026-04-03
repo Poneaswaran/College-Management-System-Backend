@@ -10,55 +10,7 @@ from profile_management.models import Semester
 # TIMETABLE CONFIGURATION
 # ==================================================
 
-class TimetableConfiguration(models.Model):
-    """
-    Store configurable period settings per semester
-    Allows different semesters to have different period structures
-    """
-    semester = models.OneToOneField(
-        Semester,
-        on_delete=models.CASCADE,
-        related_name="timetable_config"
-    )
-    periods_per_day = models.PositiveIntegerField(
-        default=8,
-        help_text="Number of periods in a day"
-    )
-    default_period_duration = models.PositiveIntegerField(
-        default=50,
-        help_text="Default duration of each period in minutes"
-    )
-    day_start_time = models.TimeField(
-        default=time(9, 30),
-        help_text="When the academic day starts"
-    )
-    day_end_time = models.TimeField(
-        default=time(16, 30),
-        help_text="When the academic day ends"
-    )
-    lunch_break_after_period = models.PositiveIntegerField(
-        default=4,
-        help_text="After which period number the lunch break occurs"
-    )
-    lunch_break_duration = models.PositiveIntegerField(
-        default=30,
-        help_text="Lunch break duration in minutes"
-    )
-    short_break_duration = models.PositiveIntegerField(
-        default=10,
-        help_text="Short break duration between periods in minutes"
-    )
-    working_days = models.JSONField(
-        default=list,
-        help_text="List of working day numbers [1=Mon, 2=Tue, ..., 7=Sun]"
-    )
-
-    class Meta:
-        verbose_name = "Timetable Configuration"
-        verbose_name_plural = "Timetable Configurations"
-
-    def __str__(self):
-        return f"Config for {self.semester}"
+from configuration.models import TimetableConfiguration
 
 
 # ==================================================
@@ -271,6 +223,11 @@ class TimetableEntry(models.Model):
         on_delete=models.CASCADE,
         related_name="timetable_entries"
     )
+    allocation_id = models.IntegerField(
+        null=True, 
+        blank=True, 
+        help_text="ID of ResourceAllocation from campus_management"
+    )
     is_active = models.BooleanField(default=True)
     notes = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -305,3 +262,9 @@ class TimetableEntry(models.Model):
         is_valid, error_message = TimetableConflictValidator.validate_entry(entry_data)
         if not is_valid:
             raise ValidationError(error_message)
+
+        # Ensure that room assignment has a corresponding campus_management ResourceAllocation
+        if self.room_id and not self.allocation_id:
+            from campus_management.validators import TimetableIntegrationValidator
+            # In an actual request, the source_id might be 0 before saving, so we check if allocation_id is set
+            raise ValidationError("Timetable entry cannot bypass allocation service. Room allocation is missing.")

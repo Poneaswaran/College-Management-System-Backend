@@ -43,6 +43,13 @@ class StudyMaterial(models.Model):
         ('PUBLISHED', 'Published'),   # Active and visible to students
         ('ARCHIVED', 'Archived'),     # No longer active
     ]
+
+    VECTOR_STATUS_CHOICES = [
+        ('PENDING', 'Pending'),
+        ('PROCESSING', 'Processing'),
+        ('INDEXED', 'Indexed'),
+        ('FAILED', 'Failed'),
+    ]
     
     # Core References
     subject = models.ForeignKey(
@@ -97,6 +104,33 @@ class StudyMaterial(models.Model):
         default='DRAFT',
         help_text="Publication status"
     )
+
+    # AI Vector Indexing Tracking
+    vectorization_status = models.CharField(
+        max_length=20,
+        choices=VECTOR_STATUS_CHOICES,
+        default='PENDING',
+        db_index=True,
+        help_text="Status of AI vector indexing"
+    )
+    vector_document_id = models.CharField(
+        max_length=255,
+        blank=True,
+        default='',
+        db_index=True,
+        help_text="External vector document identifier"
+    )
+    last_indexed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="Timestamp of last successful vector indexing"
+    )
+    vector_error_message = models.TextField(
+        blank=True,
+        default='',
+        help_text="Latest vector indexing error message"
+    )
     
     # Tracking
     view_count = models.IntegerField(
@@ -125,6 +159,7 @@ class StudyMaterial(models.Model):
             models.Index(fields=['subject', 'section', 'status']),
             models.Index(fields=['faculty', 'status']),
             models.Index(fields=['-uploaded_at']),
+            models.Index(fields=['vectorization_status', 'updated_at']),
         ]
     
     def __str__(self):

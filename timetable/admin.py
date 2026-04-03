@@ -1,48 +1,10 @@
 from django.contrib import admin
 from .models import (
-    TimetableConfiguration,
     Subject,
     PeriodDefinition,
     Room,
     TimetableEntry
 )
-
-
-@admin.register(TimetableConfiguration)
-class TimetableConfigurationAdmin(admin.ModelAdmin):
-    list_display = [
-        'semester',
-        'periods_per_day',
-        'default_period_duration',
-        'day_start_time',
-        'day_end_time'
-    ]
-    list_filter = ['semester']
-    search_fields = ['semester__academic_year__year_code']
-    fieldsets = (
-        ('Semester', {
-            'fields': ('semester',)
-        }),
-        ('Period Settings', {
-            'fields': (
-                'periods_per_day',
-                'default_period_duration',
-                'day_start_time',
-                'day_end_time'
-            )
-        }),
-        ('Break Configuration', {
-            'fields': (
-                'lunch_break_after_period',
-                'lunch_break_duration',
-                'short_break_duration'
-            )
-        }),
-        ('Working Days', {
-            'fields': ('working_days',),
-            'description': 'List of working day numbers: [1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat, 7=Sun]'
-        }),
-    )
 
 
 @admin.register(Subject)
