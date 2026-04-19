@@ -200,6 +200,15 @@ class RecordDownloadResponse:
     material: Optional[StudyMaterialType] = None
 
 
+@strawberry.type
+class AIChatResponseType:
+    """Response payload for AI tutor GraphQL mutation."""
+
+    answer: str
+    sources: List[str]
+    error: Optional[str] = None
+
+
 # Import types from other apps (at the end to avoid circular imports)
 from timetable.graphql.types import SubjectType
 from core.graphql.types import SectionType, UserType

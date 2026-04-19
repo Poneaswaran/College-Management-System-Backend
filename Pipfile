@@ -8,7 +8,11 @@ django-cors-headers = "*"
 pillow = "*"
 strawberry-graphql = {extras = ["django"], version = "*"}
 pyjwt = "*"
-django = {extras = ["argon2"], version = "*"}
+django = {extras = ["argon2"], version = "==6.0.2"}
+django-q2 = "==1.9.0"
+qrcode = "*"
+reportlab = "*"
+setuptools = "<81"
 
 [dev-packages]
 django-extensions = "*"

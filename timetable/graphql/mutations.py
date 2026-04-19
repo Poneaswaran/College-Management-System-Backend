@@ -7,10 +7,16 @@ from strawberry.types import Info
 from django.core.exceptions import ValidationError
 
 from profile_management.models import Semester
-from timetable.models import TimetableEntry
+from timetable.models import TimetableEntry, PeriodDefinition
 from timetable.utils import generate_periods_for_config
 from .types import TimetableEntryType
 from core.graphql.auth import require_auth
+from datetime import datetime
+from campus_management.services import ResourceAllocationService
+from campus_management.models import Resource
+
+
+from timetable.services import TimetableService
 
 
 @strawberry.type
@@ -33,47 +39,23 @@ class TimetableMutation:
         notes: Optional[str] = ""
     ) -> TimetableEntryType:
         """
-        Create a new timetable entry
-        
-        Args:
-            section_id: ID of the section
-            subject_id: ID of the subject
-            faculty_id: ID of the faculty member
-            period_definition_id: ID of the period definition
-            semester_id: ID of the semester
-            room_id: Optional ID of the room
-            notes: Optional notes
-        
-        Returns:
-            Created timetable entry
-        
-        Raises:
-            Exception: If validation fails or conflicts exist
+        Create a new timetable entry using TimetableService
         """
         try:
-            # Create entry
-            entry = TimetableEntry(
+            # Business logic in centralized service
+            entry = TimetableService.create_timetable_entry(
                 section_id=section_id,
                 subject_id=subject_id,
                 faculty_id=faculty_id,
                 period_definition_id=period_definition_id,
                 semester_id=semester_id,
                 room_id=room_id,
-                notes=notes or "",
-                is_active=True
+                notes=notes or ""
             )
-            
-            # Validate (this will check for conflicts)
-            entry.full_clean()
-            
-            # Save
-            entry.save()
-            
-            # Refresh from database with relations
-            entry.refresh_from_db()
             return entry
             
         except ValidationError as e:
+            # Standard error extraction from service/model validation
             error_messages = []
             if hasattr(e, 'message_dict'):
                 for field, messages in e.message_dict.items():
@@ -120,7 +102,36 @@ class TimetableMutation:
             if faculty_id is not None:
                 entry.faculty_id = faculty_id
             
-            if room_id is not None:
+            # Integrate campus_management ResourceAllocationService if room changes
+            if room_id is not None and room_id != entry.room_id:
+                if entry.allocation_id:
+                    ResourceAllocationService.release(entry.allocation_id)
+                    entry.allocation_id = None
+                
+                if room_id: # Only allocate if there's a new room
+                    try:
+                        resource = Resource.objects.get(resource_type='ROOM', reference_id=room_id)
+                    except Resource.DoesNotExist:
+                        resource = Resource.objects.create(resource_type='ROOM', reference_id=room_id)
+                    
+                    period = entry.period_definition
+                    dummy_date = datetime(1900, 1, period.day_of_week)
+                    start_time = datetime.combine(dummy_date, period.start_time)
+                    end_time = datetime.combine(dummy_date, period.end_time)
+
+                    allocation_result = ResourceAllocationService.allocate(
+                        resource=resource,
+                        start_time=start_time,
+                        end_time=end_time,
+                        allocation_type='CLASS',
+                        source_app='timetable',
+                        source_id=entry.id
+                    )
+                    
+                    if not allocation_result['success']:
+                        raise ValidationError(f"Room allocation failed: {allocation_result['error']}")
+                    
+                    entry.allocation_id = allocation_result['allocation'].id
                 entry.room_id = room_id
             
             if notes is not None:
@@ -128,6 +139,9 @@ class TimetableMutation:
             
             if is_active is not None:
                 entry.is_active = is_active
+                if not is_active and entry.allocation_id:
+                    ResourceAllocationService.release(entry.allocation_id)
+                    entry.allocation_id = None
             
             # Validate
             entry.full_clean()
@@ -180,6 +194,11 @@ class TimetableMutation:
             # Soft delete (set is_active to False)
             entry.is_active = False
             entry.save()
+            
+            if entry.allocation_id:
+                ResourceAllocationService.release(entry.allocation_id)
+                entry.allocation_id = None
+                entry.save()
             
             return True
             

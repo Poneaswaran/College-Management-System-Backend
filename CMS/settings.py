@@ -11,9 +11,27 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
 from pathlib import Path
+import importlib
+import os
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# AI Integration Settings
+AI_SERVICE_BASE_URL = os.getenv('AI_SERVICE_BASE_URL', '').rstrip('/')
+AI_SERVICE_API_SECRET = os.getenv('AI_SERVICE_API_SECRET', '')
+AI_SERVICE_SOURCE_HEADER = os.getenv('AI_SERVICE_SOURCE_HEADER', 'django-cms-backend')
+AI_SERVICE_CONNECT_TIMEOUT_SECONDS = int(os.getenv('AI_SERVICE_CONNECT_TIMEOUT_SECONDS', '5'))
+AI_SERVICE_TIMEOUT_SECONDS = int(os.getenv('AI_SERVICE_TIMEOUT_SECONDS', '20'))
+AI_SERVICE_INGEST_PATH = os.getenv('AI_SERVICE_INGEST_PATH', '/ingest')
+AI_SERVICE_QUERY_PATH = os.getenv('AI_SERVICE_QUERY_PATH', '/query')
+AI_SERVICE_DELETE_PATH = os.getenv('AI_SERVICE_DELETE_PATH', '/delete')
+
+AI_INGEST_MAX_RETRIES = int(os.getenv('AI_INGEST_MAX_RETRIES', '3'))
+AI_INGEST_BACKOFF_SECONDS = int(os.getenv('AI_INGEST_BACKOFF_SECONDS', '2'))
+
+AI_CHAT_MAX_MESSAGE_LENGTH = int(os.getenv('AI_CHAT_MAX_MESSAGE_LENGTH', '1000'))
+AI_CHAT_THROTTLE_RATE = os.getenv('AI_CHAT_THROTTLE_RATE', '20/hour')
 
 
 # Quick-start development settings - unsuitable for production
@@ -47,9 +65,19 @@ INSTALLED_APPS = [
     "assignment",
     "grades",
     "notifications",
+    "configuration",
     "exams",
     "study_materials",
+    "onboarding",
+    "campus_management",
 ]
+
+try:
+    importlib.import_module("django_q")
+    from django.utils import baseconv  # noqa: F401
+    INSTALLED_APPS.append("django_q")
+except Exception:
+    pass
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
@@ -195,4 +223,44 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
     ],
+    'DEFAULT_THROTTLE_RATES': {
+        'ai_chat': AI_CHAT_THROTTLE_RATE,
+    },
+}
+
+Q_CLUSTER = {
+    'name': 'cms_q_cluster',
+    'workers': 2,
+    'retry': 360,
+    'timeout': 300,
+    'max_attempts': 3,
+    'ack_failures': True,
+    'save_limit': 1000,
+    'catch_up': False,
+    'queue_limit': 500,
+    'bulk': 10,
+    'orm': 'default',
+}
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'standard': {
+            'format': '%(asctime)s %(levelname)s %(name)s %(message)s',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'standard',
+        },
+    },
+    'loggers': {
+        'ai_integration': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+    },
 }

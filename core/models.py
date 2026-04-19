@@ -5,6 +5,7 @@ from django.contrib.auth.models import (
     BaseUserManager
 )
 from django.utils import timezone
+from django.core.exceptions import ObjectDoesNotExist
 
 
 # ==================================================
@@ -38,16 +39,29 @@ class Course(models.Model):
 
 
 class Section(models.Model):
+    PRIORITY_CHOICES = [
+        (1, 'Final Year — Highest'),
+        (2, 'Second Year'),
+        (3, 'First Year — Lowest'),
+    ]
+
     course = models.ForeignKey(
         Course,
         on_delete=models.CASCADE,
         related_name="sections"
     )
-    name = models.CharField(max_length=10)  # A, B, C
-    year = models.PositiveIntegerField()    # 1,2,3,4
+    code = models.CharField(max_length=10, default="TEMP")   # A, B, C
+    name = models.CharField(max_length=100, default="TEMP")  # B.Sc Computer Science Year 1 Section A
+    year = models.PositiveIntegerField()                     # 1, 2, 3, 4
+    priority = models.PositiveIntegerField(
+        choices=PRIORITY_CHOICES,
+        default=3,
+        help_text="1=Final Year (highest), 2=Second Year, 3=First Year (lowest). "
+                  "Controls room allocation order in auto-scheduler."
+    )
 
     class Meta:
-        unique_together = ("course", "name", "year")
+        unique_together = ("course", "code", "year")
 
     def __str__(self):
         return f"{self.course.code} {self.year}-{self.name}"
@@ -76,6 +90,31 @@ class Role(models.Model):
     def __str__(self):
         return self.name
 
+class Permission(models.Model):
+    code = models.CharField(max_length=100, unique=True) # e.g. "allocate_room"
+    
+    def __str__(self):
+        return self.code
+
+class RolePermission(models.Model):
+    role = models.ForeignKey(Role, on_delete=models.CASCADE, related_name="permissions")
+    permission = models.ForeignKey(Permission, on_delete=models.CASCADE, related_name="roles")
+
+    class Meta:
+        unique_together = ("role", "permission")
+        
+    def __str__(self):
+        return f"{self.role.code} - {self.permission.code}"
+
+class UserRole(models.Model):
+    user = models.ForeignKey('core.User', on_delete=models.CASCADE, related_name="additional_roles")
+    role = models.ForeignKey(Role, on_delete=models.CASCADE, related_name="assigned_users")
+
+    class Meta:
+        unique_together = ("user", "role")
+
+    def __str__(self):
+        return f"{self.user} - {self.role.code}"
 
 # ==================================================
 # USER AUTH MODELS
@@ -153,6 +192,24 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     def __str__(self):
         return self.email or self.register_number
+
+    def get_full_name(self):
+        """Return the best available display name for this user."""
+        try:
+            faculty_profile = self.faculty_profile
+            if faculty_profile and faculty_profile.full_name:
+                return faculty_profile.full_name
+        except ObjectDoesNotExist:
+            pass
+
+        try:
+            student_profile = self.student_profile
+            if student_profile and student_profile.full_name:
+                return student_profile.full_name
+        except ObjectDoesNotExist:
+            pass
+
+        return self.email or self.register_number or "User"
 
 
 # ==================================================
