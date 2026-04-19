@@ -14,6 +14,7 @@ from assignment.models import Assignment, AssignmentSubmission, AssignmentGrade
 from timetable.models import TimetableEntry, Subject
 from attendance.models import AttendanceSession, StudentAttendance
 from profile_management.services import AcademicService, FacultyProfileService, StudentProfileService
+from grades.models import CourseSectionAssignment, GradeBatch
 
 
 # ==================================================
