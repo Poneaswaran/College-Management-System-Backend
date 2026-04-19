@@ -32,6 +32,9 @@ from timetable.models import (
     SectionSubjectRequirement,
     RoomMaintenanceBlock,
     Subject,
+    CombinedClassSession,
+    DepartmentSectionCombinePolicy,
+    TimetableEntry,
 )
 from .serializers import (
     TimetableEntrySerializer,
@@ -41,6 +44,8 @@ from .serializers import (
     SectionSubjectRequirementSerializer,
     SectionSubjectRequirementBulkSerializer,
     RoomMaintenanceBlockSerializer,
+    CombinedClassSessionSerializer,
+    DepartmentSectionCombinePolicySerializer,
 )
 from .services import TimetableService
 
@@ -58,6 +63,7 @@ class SectionTimetableListView(APIView):
     def get(self, request):
         section_id = request.query_params.get('section_id')
         semester_id = request.query_params.get('semester_id')
+        include_combined = str(request.query_params.get('include_combined', '')).lower() in {'1', 'true', 'yes'}
 
         if not section_id or not semester_id:
             return Response(
@@ -66,8 +72,14 @@ class SectionTimetableListView(APIView):
             )
 
         entries = TimetableService.get_section_timetable(section_id, semester_id)
-        serializer = TimetableDetailSerializer(entries, many=True)
-        return Response(serializer.data)
+        entries_data = TimetableDetailSerializer(entries, many=True).data
+
+        if not include_combined:
+            return Response(entries_data)
+
+        combined = TimetableService.get_section_combined_sessions(section_id, semester_id)
+        combined_data = CombinedClassSessionSerializer(combined, many=True).data
+        return Response({"entries": entries_data, "combined_sessions": combined_data})
 
 
 class FacultyScheduleListView(APIView):
@@ -79,6 +91,7 @@ class FacultyScheduleListView(APIView):
     def get(self, request):
         faculty_id = request.query_params.get('faculty_id')
         semester_id = request.query_params.get('semester_id')
+        include_combined = str(request.query_params.get('include_combined', '')).lower() in {'1', 'true', 'yes'}
 
         if not faculty_id or not semester_id:
             return Response(
@@ -87,8 +100,209 @@ class FacultyScheduleListView(APIView):
             )
 
         entries = TimetableService.get_faculty_timetable(faculty_id, semester_id)
-        serializer = TimetableDetailSerializer(entries, many=True)
-        return Response(serializer.data)
+        entries_data = TimetableDetailSerializer(entries, many=True).data
+
+        if not include_combined:
+            return Response(entries_data)
+
+        combined = TimetableService.get_faculty_combined_sessions(faculty_id, semester_id)
+        combined_data = CombinedClassSessionSerializer(combined, many=True).data
+        return Response({"entries": entries_data, "combined_sessions": combined_data})
+
+
+# ===========================================================================
+# Section Combining (Option A) — Policies + Combined Sessions
+# ===========================================================================
+
+
+class DepartmentCombinePolicyListCreateView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        department_id = request.query_params.get('department_id')
+        qs = DepartmentSectionCombinePolicy.objects.select_related('department').all().order_by('department__code')
+        if department_id:
+            qs = qs.filter(department_id=department_id)
+        return Response(DepartmentSectionCombinePolicySerializer(qs, many=True).data)
+
+    def post(self, request):
+        serializer = DepartmentSectionCombinePolicySerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        department = serializer.validated_data['department']
+
+        policy, _created = DepartmentSectionCombinePolicy.objects.update_or_create(
+            department=department,
+            defaults={
+                'enabled': serializer.validated_data.get('enabled', False),
+                'max_sections': serializer.validated_data.get('max_sections', 2),
+                'same_course_only': serializer.validated_data.get('same_course_only', True),
+                'allow_cross_department': serializer.validated_data.get('allow_cross_department', False),
+            },
+        )
+
+        partners = serializer.validated_data.get('allowed_partner_departments')
+        if partners is not None:
+            policy.allowed_partner_departments.set(partners)
+
+        return Response(DepartmentSectionCombinePolicySerializer(policy).data, status=status.HTTP_201_CREATED)
+
+
+class DepartmentCombinePolicyDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pk: int):
+        try:
+            policy = DepartmentSectionCombinePolicy.objects.select_related('department').get(pk=pk)
+        except DepartmentSectionCombinePolicy.DoesNotExist:
+            return Response({'error': 'Policy not found.'}, status=status.HTTP_404_NOT_FOUND)
+        return Response(DepartmentSectionCombinePolicySerializer(policy).data)
+
+    def patch(self, request, pk: int):
+        try:
+            policy = DepartmentSectionCombinePolicy.objects.get(pk=pk)
+        except DepartmentSectionCombinePolicy.DoesNotExist:
+            return Response({'error': 'Policy not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = DepartmentSectionCombinePolicySerializer(policy, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        policy = serializer.save()
+        return Response(DepartmentSectionCombinePolicySerializer(policy).data)
+
+    def delete(self, request, pk: int):
+        try:
+            policy = DepartmentSectionCombinePolicy.objects.get(pk=pk)
+        except DepartmentSectionCombinePolicy.DoesNotExist:
+            return Response({'error': 'Policy not found.'}, status=status.HTTP_404_NOT_FOUND)
+        policy.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class CombinedClassSessionListCreateView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        semester_id = request.query_params.get('semester_id')
+        section_id = request.query_params.get('section_id')
+        faculty_id = request.query_params.get('faculty_id')
+
+        qs = CombinedClassSession.objects.filter(is_active=True).select_related(
+            'semester', 'period_definition', 'subject', 'faculty', 'room'
+        ).prefetch_related('sections')
+
+        if semester_id:
+            qs = qs.filter(semester_id=semester_id)
+        if section_id:
+            qs = qs.filter(sections__id=section_id)
+        if faculty_id:
+            qs = qs.filter(faculty_id=faculty_id)
+
+        qs = qs.order_by('period_definition__day_of_week', 'period_definition__start_time').distinct()
+        return Response(CombinedClassSessionSerializer(qs, many=True).data)
+
+    def post(self, request):
+        serializer = CombinedClassSessionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        semester = serializer.validated_data['semester']
+        period = serializer.validated_data['period_definition']
+        subject = serializer.validated_data['subject']
+        faculty = serializer.validated_data.get('faculty')
+        room = serializer.validated_data.get('room')
+        sections = serializer.validated_data['sections']
+        supersede = serializer.validated_data.get('supersede_timetable_entries', True)
+
+        if supersede:
+            for s in sections:
+                exists = TimetableEntry.objects.filter(
+                    section=s,
+                    semester=semester,
+                    period_definition=period,
+                    subject=subject,
+                    is_active=True,
+                ).exists()
+                if not exists:
+                    return Response(
+                        {'error': f"Active TimetableEntry missing for section {s.id} at this slot/subject; cannot supersede."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+        session = TimetableService.create_combined_class_session(
+            semester_id=semester.id,
+            period_definition_id=period.id,
+            subject_id=subject.id,
+            faculty_id=faculty.id if faculty else None,
+            room_id=room.id if room else None,
+            section_ids=[s.id for s in sections],
+            notes=serializer.validated_data.get('notes', ""),
+            created_by_id=request.user.id,
+            supersede_timetable_entries=supersede,
+        )
+
+        return Response(CombinedClassSessionSerializer(session).data, status=status.HTTP_201_CREATED)
+
+
+class CombinedClassSessionDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pk: int):
+        try:
+            session = CombinedClassSession.objects.select_related(
+                'semester', 'period_definition', 'subject', 'faculty', 'room'
+            ).prefetch_related('sections').get(pk=pk)
+        except CombinedClassSession.DoesNotExist:
+            return Response({'error': 'Combined session not found.'}, status=status.HTTP_404_NOT_FOUND)
+        return Response(CombinedClassSessionSerializer(session).data)
+
+    def patch(self, request, pk: int):
+        try:
+            session = CombinedClassSession.objects.select_related('period_definition').get(pk=pk)
+        except CombinedClassSession.DoesNotExist:
+            return Response({'error': 'Combined session not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        allowed_fields = {'faculty_id', 'room_id', 'notes', 'is_active'}
+        unknown = set(request.data.keys()) - allowed_fields
+        if unknown:
+            return Response(
+                {'error': f"Only {sorted(allowed_fields)} can be updated."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if 'room_id' in request.data:
+            room_id = request.data.get('room_id')
+            if room_id in (None, '', 'null'):
+                TimetableService.assign_room_to_combined_session(session, None)
+            else:
+                try:
+                    TimetableService.assign_room_to_combined_session(session, int(room_id))
+                except (TypeError, ValueError):
+                    return Response({'error': 'room_id must be an integer or null.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if 'faculty_id' in request.data:
+            faculty_id = request.data.get('faculty_id')
+            session.faculty_id = int(faculty_id) if faculty_id not in (None, '', 'null') else None
+
+        if 'notes' in request.data:
+            session.notes = request.data.get('notes') or ""
+
+        if 'is_active' in request.data:
+            session.is_active = bool(request.data.get('is_active'))
+
+        session.full_clean()
+        session.save(update_fields=['faculty', 'notes', 'is_active', 'updated_at'])
+
+        return Response(CombinedClassSessionSerializer(session).data)
+
+    def delete(self, request, pk: int):
+        try:
+            session = CombinedClassSession.objects.get(pk=pk)
+        except CombinedClassSession.DoesNotExist:
+            return Response({'error': 'Combined session not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        if session.allocation_id:
+            TimetableService.assign_room_to_combined_session(session, None)
+
+        session.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class PeriodDefinitionListView(APIView):

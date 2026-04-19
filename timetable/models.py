@@ -1,5 +1,6 @@
 from django.db import models
 from django.core.exceptions import ValidationError
+from django.core.validators import MaxValueValidator, MinValueValidator
 from datetime import time
 
 from core.models import Department, Section, User
@@ -268,6 +269,159 @@ class TimetableEntry(models.Model):
             from campus_management.validators import TimetableIntegrationValidator
             # In an actual request, the source_id might be 0 before saving, so we check if allocation_id is set
             raise ValidationError("Timetable entry cannot bypass allocation service. Room allocation is missing.")
+
+
+# ==================================================
+# SECTION COMBINING (Option A)
+# ==================================================
+
+
+class DepartmentSectionCombinePolicy(models.Model):
+    """Configures whether/how sections may be combined for a department.
+
+    This is intentionally department-scoped (not course-scoped) per product
+    requirement. Hard ceiling of 2 sections is enforced.
+    """
+
+    department = models.OneToOneField(
+        Department,
+        on_delete=models.CASCADE,
+        related_name='section_combine_policy',
+    )
+    enabled = models.BooleanField(default=False)
+    max_sections = models.PositiveSmallIntegerField(
+        default=2,
+        validators=[MinValueValidator(1), MaxValueValidator(2)],
+        help_text="Maximum number of sections allowed in a combined class for this department (1-2).",
+    )
+    same_course_only = models.BooleanField(
+        default=True,
+        help_text="If true, only sections from the same Course may be combined.",
+    )
+    allow_cross_department = models.BooleanField(
+        default=False,
+        help_text="If true, allows combining with explicitly allowed partner departments.",
+    )
+    allowed_partner_departments = models.ManyToManyField(
+        Department,
+        blank=True,
+        related_name='allowed_combine_partners',
+        help_text="Departments this department is allowed to combine with (used only when allow_cross_department is true).",
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Department Section Combine Policy'
+        verbose_name_plural = 'Department Section Combine Policies'
+
+    def clean(self):
+        if self.max_sections > 2:
+            raise ValidationError("max_sections cannot exceed 2.")
+        if not self.allow_cross_department and self.pk:
+            # Keep partner list empty when cross-department combining is disabled.
+            if self.allowed_partner_departments.exists():
+                raise ValidationError("allowed_partner_departments must be empty when allow_cross_department is false.")
+
+    def __str__(self):
+        return f"{self.department.code} policy (enabled={self.enabled}, max={self.max_sections})"
+
+
+class CombinedClassSession(models.Model):
+    """A single teaching session shared by up to 2 sections.
+
+    This exists alongside TimetableEntry (Option A). Section timetables should
+    include these sessions for any section listed in `sections`.
+    """
+
+    semester = models.ForeignKey(
+        Semester,
+        on_delete=models.CASCADE,
+        related_name='combined_class_sessions',
+    )
+    period_definition = models.ForeignKey(
+        PeriodDefinition,
+        on_delete=models.CASCADE,
+        related_name='combined_class_sessions',
+    )
+    subject = models.ForeignKey(
+        Subject,
+        on_delete=models.CASCADE,
+        related_name='combined_class_sessions',
+    )
+    faculty = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='combined_teaching_schedule',
+        limit_choices_to={'role__code': 'FACULTY'},
+    )
+    room = models.ForeignKey(
+        Room,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='combined_class_sessions',
+    )
+    allocation_id = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text="ID of ResourceAllocation from campus_management",
+    )
+    sections = models.ManyToManyField(
+        Section,
+        through='CombinedClassSessionSection',
+        related_name='combined_class_sessions',
+    )
+    is_active = models.BooleanField(default=True)
+    notes = models.TextField(blank=True)
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='created_combined_sessions',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['semester', 'period_definition']),
+            models.Index(fields=['faculty', 'semester']),
+            models.Index(fields=['room', 'period_definition']),
+        ]
+        verbose_name = 'Combined Class Session'
+        verbose_name_plural = 'Combined Class Sessions'
+
+    def __str__(self):
+        return f"Combined {self.subject.code} @ {self.period_definition} ({self.semester_id})"
+
+    def clean(self):
+        # Mirror TimetableEntry allocation constraint.
+        if self.room_id and not self.allocation_id:
+            raise ValidationError("Combined class session cannot bypass allocation service. Room allocation is missing.")
+
+
+class CombinedClassSessionSection(models.Model):
+    combined_session = models.ForeignKey(
+        CombinedClassSession,
+        on_delete=models.CASCADE,
+        related_name='section_links',
+    )
+    section = models.ForeignKey(
+        Section,
+        on_delete=models.CASCADE,
+        related_name='combined_session_links',
+    )
+
+    class Meta:
+        unique_together = ('combined_session', 'section')
+        verbose_name = 'Combined Class Session Section'
+        verbose_name_plural = 'Combined Class Session Sections'
+
+    def __str__(self):
+        return f"{self.combined_session_id} <-> {self.section_id}"
 
 
 # ==================================================

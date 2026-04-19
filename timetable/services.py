@@ -14,6 +14,7 @@ TimetableViolationNotifier  — Item 8: pushes violation alerts to HOD/ADMIN use
 
 import logging
 from datetime import date, timedelta, datetime
+from typing import Optional
 
 from django.db import transaction
 from django.core.exceptions import ValidationError
@@ -21,7 +22,11 @@ from django.utils import timezone
 
 from campus_management.services import ResourceAllocationService
 from campus_management.models import Resource
-from timetable.models import TimetableEntry, PeriodDefinition
+from timetable.models import (
+    TimetableEntry,
+    PeriodDefinition,
+    CombinedClassSession,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -159,6 +164,184 @@ class TimetableService:
         ).select_related(
             'section', 'section__course', 'subject', 'room', 'period_definition'
         ).order_by('period_definition__day_of_week', 'period_definition__start_time')
+
+    @staticmethod
+    def get_section_combined_sessions(section_id: int, semester_id: int):
+        return CombinedClassSession.objects.filter(
+            semester_id=semester_id,
+            sections__id=section_id,
+            is_active=True,
+        ).select_related(
+            'subject', 'faculty', 'room', 'period_definition', 'semester'
+        ).prefetch_related('sections').order_by(
+            'period_definition__day_of_week', 'period_definition__start_time'
+        )
+
+    @staticmethod
+    def get_faculty_combined_sessions(faculty_id: int, semester_id: int):
+        return CombinedClassSession.objects.filter(
+            semester_id=semester_id,
+            faculty_id=faculty_id,
+            is_active=True,
+        ).select_related(
+            'subject', 'faculty', 'room', 'period_definition', 'semester'
+        ).prefetch_related('sections').order_by(
+            'period_definition__day_of_week', 'period_definition__start_time'
+        )
+
+    @staticmethod
+    @transaction.atomic
+    def assign_room_to_entry(entry: TimetableEntry, room_id: Optional[int]) -> TimetableEntry:
+        """Assign or clear a room for an existing entry.
+
+        This is the canonical path to keep `allocation_id` consistent with
+        `campus_management`.
+
+        - If `room_id` is None: clears room + releases allocation if present.
+        - If `room_id` is set: releases any previous allocation, allocates the
+          new room via `ResourceAllocationService`, then saves.
+        """
+        from campus_management.services import ResourceAllocationService
+
+        # Release any previous allocation
+        if entry.allocation_id:
+            ResourceAllocationService.release(entry.allocation_id)
+            entry.allocation_id = None
+
+        if room_id is None:
+            entry.room_id = None
+            entry.full_clean()
+            entry.save(update_fields=['room', 'allocation_id', 'updated_at'])
+            return entry
+
+        # Ensure the resource exists for this room
+        try:
+            resource = Resource.objects.get(resource_type='ROOM', reference_id=room_id)
+        except Resource.DoesNotExist:
+            resource = Resource.objects.create(resource_type='ROOM', reference_id=room_id)
+
+        # Use the same dummy-datetime approach as manual creation
+        period = entry.period_definition
+        dummy_date = datetime(1900, 1, period.day_of_week)
+        start_time = datetime.combine(dummy_date, period.start_time)
+        end_time = datetime.combine(dummy_date, period.end_time)
+
+        allocation_result = ResourceAllocationService.allocate(
+            resource=resource,
+            start_time=start_time,
+            end_time=end_time,
+            allocation_type='CLASS',
+            source_app='timetable',
+            source_id=entry.id,
+        )
+        if not allocation_result['success']:
+            raise ValidationError(f"Room allocation failed: {allocation_result['error']}")
+
+        entry.room_id = room_id
+        entry.allocation_id = allocation_result['allocation'].id
+        entry.full_clean()
+        entry.save(update_fields=['room', 'allocation_id', 'updated_at'])
+        return entry
+
+    @staticmethod
+    @transaction.atomic
+    def assign_room_to_combined_session(session: CombinedClassSession, room_id: Optional[int]) -> CombinedClassSession:
+        """Assign or clear a room for an existing combined class session.
+
+        Mirrors `assign_room_to_entry` so `allocation_id` stays consistent.
+        """
+
+        # Release any previous allocation
+        if session.allocation_id:
+            ResourceAllocationService.release(session.allocation_id)
+            session.allocation_id = None
+
+        if room_id is None:
+            session.room_id = None
+            session.full_clean()
+            session.save(update_fields=['room', 'allocation_id', 'updated_at'])
+            return session
+
+        try:
+            resource = Resource.objects.get(resource_type='ROOM', reference_id=room_id)
+        except Resource.DoesNotExist:
+            resource = Resource.objects.create(resource_type='ROOM', reference_id=room_id)
+
+        period = session.period_definition
+        dummy_date = datetime(1900, 1, period.day_of_week)
+        start_time = datetime.combine(dummy_date, period.start_time)
+        end_time = datetime.combine(dummy_date, period.end_time)
+
+        allocation_result = ResourceAllocationService.allocate(
+            resource=resource,
+            start_time=start_time,
+            end_time=end_time,
+            allocation_type='CLASS',
+            source_app='timetable',
+            source_id=session.id,
+        )
+        if not allocation_result['success']:
+            raise ValidationError(f"Room allocation failed: {allocation_result['error']}")
+
+        session.room_id = room_id
+        session.allocation_id = allocation_result['allocation'].id
+        session.full_clean()
+        session.save(update_fields=['room', 'allocation_id', 'updated_at'])
+        return session
+
+    @staticmethod
+    @transaction.atomic
+    def create_combined_class_session(
+        *,
+        semester_id: int,
+        period_definition_id: int,
+        subject_id: int,
+        faculty_id: Optional[int],
+        room_id: Optional[int],
+        section_ids: list[int],
+        notes: str = "",
+        created_by_id: Optional[int] = None,
+        supersede_timetable_entries: bool = True,
+    ) -> CombinedClassSession:
+        if len(section_ids) != 2:
+            raise ValidationError("Exactly 2 sections are required.")
+
+        session = CombinedClassSession.objects.create(
+            semester_id=semester_id,
+            period_definition_id=period_definition_id,
+            subject_id=subject_id,
+            faculty_id=faculty_id,
+            room_id=None,
+            allocation_id=None,
+            notes=notes or "",
+            is_active=True,
+            created_by_id=created_by_id,
+        )
+        session.sections.set(section_ids)
+
+        if room_id is not None:
+            TimetableService.assign_room_to_combined_session(session, room_id)
+
+        if supersede_timetable_entries:
+            # Deactivate matching entries and release their allocations.
+            entries = TimetableEntry.objects.filter(
+                section_id__in=section_ids,
+                semester_id=semester_id,
+                period_definition_id=period_definition_id,
+                subject_id=subject_id,
+                is_active=True,
+            ).select_related('period_definition')
+
+            for entry in entries:
+                if entry.room_id or entry.allocation_id:
+                    TimetableService.assign_room_to_entry(entry, None)
+                entry.is_active = False
+                entry.notes = (entry.notes or "").strip()
+                suffix = f"Superseded by combined session #{session.id}."
+                entry.notes = (entry.notes + ("\n" if entry.notes else "") + suffix)
+                entry.save(update_fields=['is_active', 'notes', 'updated_at'])
+
+        return session
 
 
 # ===========================================================================

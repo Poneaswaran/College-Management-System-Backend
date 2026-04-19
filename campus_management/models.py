@@ -83,7 +83,7 @@ class ResourceAllocation(models.Model):
         # SQLite doesn't support complex range constraints, so check is on application side and simple valid range
         constraints = [
             models.CheckConstraint(
-                check=models.Q(start_time__lt=models.F('end_time')),
+                condition=models.Q(start_time__lt=models.F('end_time')),
                 name='campus_management_valid_allocation_range'
             )
         ]

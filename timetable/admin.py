@@ -25,6 +25,9 @@ from .models import (
     LabRotationSchedule,
     SectionSubjectRequirement,
     RoomMaintenanceBlock,
+    DepartmentSectionCombinePolicy,
+    CombinedClassSession,
+    CombinedClassSessionSection,
 )
 
 

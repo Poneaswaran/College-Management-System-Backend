@@ -20,6 +20,12 @@ from .views import (
     RoomMaintenanceBlockListCreateView,
     RoomMaintenanceBlockDetailView,
     RescheduleMaintenanceView,
+
+    # Section combining (Option A)
+    DepartmentCombinePolicyListCreateView,
+    DepartmentCombinePolicyDetailView,
+    CombinedClassSessionListCreateView,
+    CombinedClassSessionDetailView,
 )
 
 urlpatterns = [
@@ -53,4 +59,10 @@ urlpatterns = [
     path('maintenance/', RoomMaintenanceBlockListCreateView.as_view(), name='maintenance-list-create'),
     path('maintenance/<int:pk>/', RoomMaintenanceBlockDetailView.as_view(), name='maintenance-detail'),
     path('maintenance/<int:pk>/reschedule/', RescheduleMaintenanceView.as_view(), name='maintenance-reschedule'),
+
+    # ── Section combining (Option A) ───────────────────────────────────────
+    path('combine-policies/', DepartmentCombinePolicyListCreateView.as_view(), name='combine-policy-list-create'),
+    path('combine-policies/<int:pk>/', DepartmentCombinePolicyDetailView.as_view(), name='combine-policy-detail'),
+    path('combined-sessions/', CombinedClassSessionListCreateView.as_view(), name='combined-session-list-create'),
+    path('combined-sessions/<int:pk>/', CombinedClassSessionDetailView.as_view(), name='combined-session-detail'),
 ]

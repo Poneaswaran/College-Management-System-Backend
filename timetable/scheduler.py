@@ -407,6 +407,64 @@ class RoomAllocatorService:
 
         # 8. Persist (unless dry_run)
         if not dry_run:
+            from timetable.services import TimetableService
+            from timetable.models import TimetableEntry
+
+            # Clear any previous room allocations for this period (non-lab sections only).
+            # Lab sessions keep their lab rooms fixed via LabRotationSchedule.
+            existing_entries = list(
+                TimetableEntry.objects.filter(
+                    semester_id=semester_id,
+                    period_definition_id=period_definition_id,
+                    is_active=True,
+                )
+                .exclude(section_id__in=lab_section_ids)
+                .select_related('period_definition')
+            )
+            for entry in existing_entries:
+                if entry.room_id is not None or entry.allocation_id is not None:
+                    TimetableService.assign_room_to_entry(entry, None)
+
+            # Apply the new assignments to TimetableEntry rows.
+            persisted_assigned: list[tuple[Section, Room]] = []
+            failed_sections: list[Section] = []
+
+            for section, room in assigned:
+                entry = (
+                    TimetableEntry.objects.filter(
+                        section_id=section.id,
+                        semester_id=semester_id,
+                        period_definition_id=period_definition_id,
+                        is_active=True,
+                    )
+                    .select_related('period_definition')
+                    .first()
+                )
+                if entry is None:
+                    violations.append(
+                        f"Missing TimetableEntry for section '{section.name}' at {period}. "
+                        "Run subject distribution before room allocation."
+                    )
+                    failed_sections.append(section)
+                    continue
+
+                try:
+                    TimetableService.assign_room_to_entry(entry, room.id)
+                    persisted_assigned.append((section, room))
+                except Exception as exc:
+                    violations.append(
+                        f"Room assignment failed for section '{section.name}' at {period}: {exc}"
+                    )
+                    failed_sections.append(section)
+
+            # Treat failed sections as overflow so they have a defined activity.
+            # (We do not attempt to retry with another room here; callers can re-run.)
+            if failed_sections:
+                overflow.extend([s for s in failed_sections if s not in overflow])
+
+            # Replace in-memory assigned list with the persisted subset.
+            assigned = persisted_assigned
+
             # Track which sections received a boost from accumulated overflow debt
             # so we can auto-compensate them after this run (Item 5).
             boosted_section_ids: list[int] = []

@@ -25,8 +25,10 @@ from timetable.models import (
     Room,
     SectionSubjectRequirement,
     RoomMaintenanceBlock,
+    DepartmentSectionCombinePolicy,
+    CombinedClassSession,
 )
-from core.models import Section, User
+from core.models import Department, Section, User
 from profile_management.models import Semester
 
 
@@ -306,4 +308,218 @@ class RoomMaintenanceBlockSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 {"end_date": "end_date must be on or after start_date."}
             )
+        return data
+
+
+# ===========================================================================
+# Section Combining (Option A)
+# ===========================================================================
+
+
+class DepartmentSectionCombinePolicySerializer(serializers.ModelSerializer):
+    department_id = serializers.PrimaryKeyRelatedField(
+        source='department',
+        queryset=Department.objects.filter(is_active=True),
+    )
+    allowed_partner_department_ids = serializers.PrimaryKeyRelatedField(
+        source='allowed_partner_departments',
+        queryset=Department.objects.filter(is_active=True),
+        many=True,
+        required=False,
+    )
+
+    class Meta:
+        model = DepartmentSectionCombinePolicy
+        fields = [
+            'id',
+            'department_id',
+            'enabled',
+            'max_sections',
+            'same_course_only',
+            'allow_cross_department',
+            'allowed_partner_department_ids',
+            'updated_at',
+        ]
+        read_only_fields = ['id', 'updated_at']
+
+    def validate(self, data):
+        allow_cross = data.get('allow_cross_department')
+        partners = data.get('allowed_partner_departments')
+        if allow_cross is False and partners:
+            raise serializers.ValidationError(
+                {"allowed_partner_department_ids": "Must be empty when allow_cross_department is false."}
+            )
+        max_sections = data.get('max_sections')
+        if max_sections and max_sections > 2:
+            raise serializers.ValidationError({"max_sections": "Cannot exceed 2."})
+        return data
+
+
+class CombinedClassSessionSerializer(serializers.ModelSerializer):
+    # Writable FK ids
+    semester_id = serializers.PrimaryKeyRelatedField(
+        source='semester',
+        queryset=Semester.objects.all(),
+    )
+    period_definition_id = serializers.PrimaryKeyRelatedField(
+        source='period_definition',
+        queryset=PeriodDefinition.objects.all(),
+    )
+    subject_id = serializers.PrimaryKeyRelatedField(
+        source='subject',
+        queryset=Subject.objects.filter(is_active=True),
+    )
+    faculty_id = serializers.PrimaryKeyRelatedField(
+        source='faculty',
+        queryset=User.objects.filter(role__code='FACULTY', is_active=True),
+        allow_null=True,
+        required=False,
+    )
+    room_id = serializers.PrimaryKeyRelatedField(
+        source='room',
+        queryset=Room.objects.filter(is_active=True),
+        allow_null=True,
+        required=False,
+    )
+
+    # Sections
+    section_ids = serializers.PrimaryKeyRelatedField(
+        source='sections',
+        queryset=Section.objects.all(),
+        many=True,
+        write_only=True,
+    )
+    sections = serializers.SerializerMethodField(read_only=True)
+
+    # Read-only display fields
+    subject_name = serializers.CharField(source='subject.name', read_only=True)
+    subject_code = serializers.CharField(source='subject.code', read_only=True)
+    faculty_name = serializers.SerializerMethodField(read_only=True)
+    period_number = serializers.IntegerField(source='period_definition.period_number', read_only=True)
+    day_name = serializers.CharField(source='period_definition.get_day_of_week_display', read_only=True)
+    start_time = serializers.TimeField(source='period_definition.start_time', read_only=True)
+    end_time = serializers.TimeField(source='period_definition.end_time', read_only=True)
+    room_name = serializers.CharField(source='room.room_number', read_only=True, allow_null=True)
+
+    supersede_timetable_entries = serializers.BooleanField(
+        write_only=True,
+        required=False,
+        default=True,
+        help_text="If true, deactivates matching TimetableEntry rows for each section at this slot.",
+    )
+
+    class Meta:
+        model = CombinedClassSession
+        fields = [
+            'id',
+            'semester_id',
+            'period_definition_id',
+            'subject_id',
+            'subject_name',
+            'subject_code',
+            'faculty_id',
+            'faculty_name',
+            'room_id',
+            'room_name',
+            'allocation_id',
+            'section_ids',
+            'sections',
+            'period_number',
+            'day_name',
+            'start_time',
+            'end_time',
+            'is_active',
+            'notes',
+            'created_by',
+            'created_at',
+            'updated_at',
+            'supersede_timetable_entries',
+        ]
+        read_only_fields = [
+            'id',
+            'allocation_id',
+            'sections',
+            'subject_name',
+            'subject_code',
+            'faculty_name',
+            'period_number',
+            'day_name',
+            'start_time',
+            'end_time',
+            'room_name',
+            'created_by',
+            'created_at',
+            'updated_at',
+        ]
+
+    def get_faculty_name(self, obj):
+        if obj.faculty:
+            return obj.faculty.get_full_name()
+        return None
+
+    def get_sections(self, obj):
+        return [
+            {
+                "id": s.id,
+                "code": s.code,
+                "name": s.name,
+                "course_id": s.course_id,
+                "department_id": s.course.department_id,
+                "year": s.year,
+            }
+            for s in obj.sections.select_related('course', 'course__department').all()
+        ]
+
+    def validate(self, data):
+        sections = data.get('sections') or []
+        if len(sections) != 2:
+            raise serializers.ValidationError({"section_ids": "Exactly 2 sections are required."})
+
+        section_1, section_2 = sections[0], sections[1]
+        dept_1 = section_1.course.department
+        dept_2 = section_2.course.department
+
+        # Department policies must allow combining.
+        try:
+            policy_1 = DepartmentSectionCombinePolicy.objects.get(department=dept_1)
+        except DepartmentSectionCombinePolicy.DoesNotExist:
+            raise serializers.ValidationError(
+                {"section_ids": f"No combine policy configured for department {dept_1.code}."}
+            )
+        if not policy_1.enabled or policy_1.max_sections < 2:
+            raise serializers.ValidationError(
+                {"section_ids": f"Combining is disabled for department {dept_1.code}."}
+            )
+
+        # Cross-department checks.
+        if dept_1.id != dept_2.id:
+            if not policy_1.allow_cross_department:
+                raise serializers.ValidationError({"section_ids": "Cross-department combining is not allowed."})
+            if not policy_1.allowed_partner_departments.filter(id=dept_2.id).exists():
+                raise serializers.ValidationError({"section_ids": "Partner department is not allowed by policy."})
+
+            # Partner department must also have an enabled reciprocal policy.
+            try:
+                policy_2 = DepartmentSectionCombinePolicy.objects.get(department=dept_2)
+            except DepartmentSectionCombinePolicy.DoesNotExist:
+                raise serializers.ValidationError(
+                    {"section_ids": f"No combine policy configured for department {dept_2.code}."}
+                )
+            if not policy_2.enabled or policy_2.max_sections < 2:
+                raise serializers.ValidationError(
+                    {"section_ids": f"Combining is disabled for department {dept_2.code}."}
+                )
+            if not policy_2.allow_cross_department:
+                raise serializers.ValidationError({"section_ids": "Partner department policy disallows cross-department combining."})
+            if not policy_2.allowed_partner_departments.filter(id=dept_1.id).exists():
+                raise serializers.ValidationError({"section_ids": "Partner department policy does not allow this department."})
+
+        # Same-course enforcement (department 1 policy governs).
+        if policy_1.same_course_only and section_1.course_id != section_2.course_id:
+            raise serializers.ValidationError({"section_ids": "Only sections from the same course may be combined."})
+
+        # Basic sanity: combine should usually be within the same year.
+        if section_1.year != section_2.year:
+            raise serializers.ValidationError({"section_ids": "Sections must be from the same year to be combined."})
+
         return data
