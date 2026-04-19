@@ -18,7 +18,7 @@ db.sqlite3
 db.sqlite3-journal
 media/
 staticfiles/
-
+chroma.sqlite3
 # Migrations (optional – uncomment if you don't want to track them)
 # */migrations/
 # */migrations/*.py

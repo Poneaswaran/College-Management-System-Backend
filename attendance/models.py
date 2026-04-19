@@ -142,7 +142,7 @@ class AttendanceSession(models.Model):
 
         constraints = [
             models.CheckConstraint(
-                condition=(
+                check=(
                     (Q(timetable_entry__isnull=False) & Q(combined_session__isnull=True))
                     | (Q(timetable_entry__isnull=True) & Q(combined_session__isnull=False))
                 ),

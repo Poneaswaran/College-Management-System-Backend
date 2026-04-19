@@ -27,6 +27,15 @@ from .views import (
     CombinedClassSessionListCreateView,
     CombinedClassSessionDetailView,
 )
+from .views_ai import (
+    TimetableStateView,
+    AvailableRoomsView,
+    FairnessReportView,
+    SwapSlotsView,
+    ApplyConstraintsView,
+    TimetableChatView,
+    ScheduleAuditView,
+)
 
 urlpatterns = [
     # ── Period definitions ────────────────────────────────────────────────
@@ -65,4 +74,18 @@ urlpatterns = [
     path('combine-policies/<int:pk>/', DepartmentCombinePolicyDetailView.as_view(), name='combine-policy-detail'),
     path('combined-sessions/', CombinedClassSessionListCreateView.as_view(), name='combined-session-list-create'),
     path('combined-sessions/<int:pk>/', CombinedClassSessionDetailView.as_view(), name='combined-session-detail'),
+
+    # ── AI Timetable Copilot ──────────────────────────────────────────────
+    # Read endpoints — expose timetable state to the AI
+    path('ai/state/<int:semester_id>/', TimetableStateView.as_view(), name='ai-timetable-state'),
+    path('ai/rooms/<int:semester_id>/', AvailableRoomsView.as_view(), name='ai-available-rooms'),
+    path('ai/fairness/<int:semester_id>/', FairnessReportView.as_view(), name='ai-fairness-report'),
+
+    # Write endpoints — AI proposes, admin confirms, Django applies
+    path('ai/swap-slots/', SwapSlotsView.as_view(), name='ai-swap-slots'),
+    path('ai/apply-constraints/', ApplyConstraintsView.as_view(), name='ai-apply-constraints'),
+
+    # Proxy endpoints — Django enriches payload and forwards to FastAPI
+    path('ai/chat/', TimetableChatView.as_view(), name='ai-chat'),
+    path('ai/audit/', ScheduleAuditView.as_view(), name='ai-audit'),
 ]

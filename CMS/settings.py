@@ -27,6 +27,11 @@ AI_SERVICE_INGEST_PATH = os.getenv('AI_SERVICE_INGEST_PATH', '/ingest')
 AI_SERVICE_QUERY_PATH = os.getenv('AI_SERVICE_QUERY_PATH', '/query')
 AI_SERVICE_DELETE_PATH = os.getenv('AI_SERVICE_DELETE_PATH', '/delete')
 
+# Timetable AI Copilot — same FastAPI service, dedicated path prefix
+TIMETABLE_AI_BASE_URL = os.getenv('TIMETABLE_AI_BASE_URL', 'http://localhost:8001')
+TIMETABLE_AI_SECRET   = os.getenv('TIMETABLE_AI_SECRET', '1Nnzm1F7InKkjCPJmJopRMc9oX77ObVvyqKqMkz601j')
+
+
 AI_INGEST_MAX_RETRIES = int(os.getenv('AI_INGEST_MAX_RETRIES', '3'))
 AI_INGEST_BACKOFF_SECONDS = int(os.getenv('AI_INGEST_BACKOFF_SECONDS', '2'))
 
