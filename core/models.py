@@ -39,14 +39,26 @@ class Course(models.Model):
 
 
 class Section(models.Model):
+    PRIORITY_CHOICES = [
+        (1, 'Final Year — Highest'),
+        (2, 'Second Year'),
+        (3, 'First Year — Lowest'),
+    ]
+
     course = models.ForeignKey(
         Course,
         on_delete=models.CASCADE,
         related_name="sections"
     )
-    code = models.CharField(max_length=10, default="TEMP") # A, B, C
-    name = models.CharField(max_length=100, default="TEMP") # B.Sc Computer Science Year 1 Section A
-    year = models.PositiveIntegerField()    # 1,2,3,4
+    code = models.CharField(max_length=10, default="TEMP")   # A, B, C
+    name = models.CharField(max_length=100, default="TEMP")  # B.Sc Computer Science Year 1 Section A
+    year = models.PositiveIntegerField()                     # 1, 2, 3, 4
+    priority = models.PositiveIntegerField(
+        choices=PRIORITY_CHOICES,
+        default=3,
+        help_text="1=Final Year (highest), 2=Second Year, 3=First Year (lowest). "
+                  "Controls room allocation order in auto-scheduler."
+    )
 
     class Meta:
         unique_together = ("course", "code", "year")

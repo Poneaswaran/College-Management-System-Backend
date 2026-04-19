@@ -1,4 +1,5 @@
 from django.contrib import admin
+from django.contrib import messages
 
 from configuration.models import Configuration, FeatureFlag, TimetableConfiguration
 
@@ -28,6 +29,7 @@ class TimetableConfigurationAdmin(admin.ModelAdmin):
     ]
     list_filter = ['semester']
     search_fields = ['semester__academic_year__year_code']
+    actions = ['generate_periods']
     fieldsets = (
         ('Semester', {
             'fields': ('semester',)
@@ -52,3 +54,37 @@ class TimetableConfigurationAdmin(admin.ModelAdmin):
             'description': 'List of working day numbers: [1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat, 7=Sun]'
         }),
     )
+
+    # ── Item 7: Generate period definitions via admin action ───────────────
+
+    @admin.action(description='📅 Generate PeriodDefinition rows for selected configs')
+    def generate_periods(self, request, queryset):
+        """
+        Calls generate_periods_for_config() for each selected
+        TimetableConfiguration and reports how many PeriodDefinition
+        rows were created.
+        """
+        from timetable.utils import generate_periods_for_config
+
+        total_created = 0
+        summaries = []
+
+        for config in queryset:
+            try:
+                created = generate_periods_for_config(config)
+                count = len(created)
+                total_created += count
+                summaries.append(
+                    f"Semester '{config.semester}': {count} period(s) created."
+                )
+            except Exception as exc:
+                summaries.append(
+                    f"Semester '{config.semester}': ERROR — {exc}"
+                )
+
+        level = messages.SUCCESS if total_created > 0 else messages.WARNING
+        self.message_user(
+            request,
+            f"Total periods created: {total_created}. " + " | ".join(summaries),
+            level,
+        )

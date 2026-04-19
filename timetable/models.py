@@ -268,3 +268,302 @@ class TimetableEntry(models.Model):
             from campus_management.validators import TimetableIntegrationValidator
             # In an actual request, the source_id might be 0 before saving, so we check if allocation_id is set
             raise ValidationError("Timetable entry cannot bypass allocation service. Room allocation is missing.")
+
+
+# ==================================================
+# NON-ROOM PERIOD
+# ==================================================
+
+class NonRoomPeriod(models.Model):
+    """
+    Records a period slot where a section does NOT need a classroom.
+    This is the primary mechanism that reduces peak simultaneous room demand
+    from 17 to 13-14, making the schedule feasible with only 14 rooms.
+
+    Types:
+      LAB     -> section is in a lab (lab room booked via TimetableEntry)
+      PT      -> physical education / sports (outdoor, no room needed)
+      LIBRARY -> library period (library space, not a classroom)
+      FREE    -> free / self-study / overflow-compensation period
+    """
+    NON_ROOM_TYPES = [
+        ('LAB',     'Lab Practical'),
+        ('PT',      'Physical Education'),
+        ('LIBRARY', 'Library Period'),
+        ('FREE',    'Free / Self-Study'),
+    ]
+
+    section           = models.ForeignKey(
+        Section,
+        on_delete=models.CASCADE,
+        related_name='non_room_periods'
+    )
+    period_definition = models.ForeignKey(
+        PeriodDefinition,
+        on_delete=models.CASCADE,
+        related_name='non_room_periods'
+    )
+    period_type = models.CharField(max_length=20, choices=NON_ROOM_TYPES)
+    semester    = models.ForeignKey(
+        'profile_management.Semester',
+        on_delete=models.CASCADE,
+        related_name='non_room_periods'
+    )
+    notes      = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('section', 'period_definition', 'semester')
+        indexes = [
+            models.Index(fields=['semester', 'period_definition']),
+            models.Index(fields=['section', 'semester']),
+        ]
+        verbose_name        = "Non-Room Period"
+        verbose_name_plural = "Non-Room Periods"
+
+    def __str__(self):
+        return (
+            f"{self.section} | {self.get_period_type_display()} | {self.period_definition}"
+        )
+
+
+# ==================================================
+# OVERFLOW LOG
+# ==================================================
+
+class OverflowLog(models.Model):
+    """
+    Append-only record of every time a section was displaced from a room.
+    The auto-scheduler reads aggregated counts to enforce fairness:
+    sections displaced most often get priority in the next allocation run.
+
+    Keep as a log (not a counter) so admins can audit per-day history.
+    """
+    section           = models.ForeignKey(
+        Section,
+        on_delete=models.CASCADE,
+        related_name='overflow_logs'
+    )
+    period_definition = models.ForeignKey(
+        PeriodDefinition,
+        on_delete=models.CASCADE,
+        related_name='overflow_logs'
+    )
+    semester = models.ForeignKey(
+        'profile_management.Semester',
+        on_delete=models.CASCADE,
+        related_name='overflow_logs'
+    )
+    overflow_date = models.DateField(
+        help_text="Calendar date on which the overflow occurred"
+    )
+    reason = models.CharField(
+        max_length=100,
+        default='room_shortage',
+        choices=[
+            ('room_shortage',  'Room Shortage'),
+            ('maintenance',    'Room Under Maintenance'),
+            ('event',          'Room Occupied by Event'),
+        ]
+    )
+    compensated = models.BooleanField(
+        default=False,
+        help_text="True once this section has been given compensatory priority"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['section', 'semester']),
+            models.Index(fields=['semester', 'overflow_date']),
+            models.Index(fields=['compensated']),
+        ]
+        verbose_name        = "Overflow Log"
+        verbose_name_plural = "Overflow Logs"
+
+    def __str__(self):
+        return f"{self.section} overflowed on {self.overflow_date} ({self.reason})"
+
+
+# ==================================================
+# LAB ROTATION SCHEDULE
+# ==================================================
+
+class LabRotationSchedule(models.Model):
+    """
+    Precomputed mapping: which section uses which lab on which period slot.
+    Generated once per semester by LabRotationGenerator.generate().
+    Ensures:
+      - No two sections share a lab at the same period
+      - Every section gets exactly one lab session per week
+      - Labs are available as classrooms during all other periods
+    """
+    section = models.ForeignKey(
+        Section,
+        on_delete=models.CASCADE,
+        related_name='lab_rotations'
+    )
+    lab = models.ForeignKey(
+        Room,
+        on_delete=models.CASCADE,
+        related_name='lab_rotations',
+        limit_choices_to={'room_type': 'LAB'}
+    )
+    period_definition = models.ForeignKey(
+        PeriodDefinition,
+        on_delete=models.CASCADE,
+        related_name='lab_rotations'
+    )
+    semester = models.ForeignKey(
+        'profile_management.Semester',
+        on_delete=models.CASCADE,
+        related_name='lab_rotations'
+    )
+    is_active  = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        # Each section gets exactly one lab slot per semester
+        unique_together = ('section', 'semester')
+        indexes = [
+            models.Index(fields=['lab', 'period_definition', 'semester']),
+            models.Index(fields=['semester', 'is_active']),
+        ]
+        verbose_name        = "Lab Rotation Schedule"
+        verbose_name_plural = "Lab Rotation Schedules"
+
+    def __str__(self):
+        return (
+            f"{self.section} -> {self.lab.room_number} @ {self.period_definition}"
+        )
+
+    def clean(self):
+        """Prevent two sections from occupying the same lab at the same period."""
+        if not self.lab_id or not self.period_definition_id or not self.semester_id:
+            return
+        conflict = LabRotationSchedule.objects.filter(
+            lab=self.lab,
+            period_definition=self.period_definition,
+            semester=self.semester,
+            is_active=True
+        ).exclude(pk=self.pk)
+        if conflict.exists():
+            raise ValidationError(
+                f"Lab {self.lab.room_number} is already assigned to another section "
+                f"at {self.period_definition}."
+            )
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+
+# ==================================================
+# SECTION SUBJECT REQUIREMENT  (Item 2)
+# ==================================================
+
+class SectionSubjectRequirement(models.Model):
+    """
+    Defines how many periods per week a subject must be scheduled for a
+    given section in a given semester, and which faculty teaches it.
+
+    The SubjectDistributionService reads these rows to fill the timetable
+    grid before RoomAllocatorService assigns rooms.
+    """
+    section = models.ForeignKey(
+        Section,
+        on_delete=models.CASCADE,
+        related_name='subject_requirements',
+    )
+    semester = models.ForeignKey(
+        'profile_management.Semester',
+        on_delete=models.CASCADE,
+        related_name='subject_requirements',
+    )
+    subject = models.ForeignKey(
+        Subject,
+        on_delete=models.CASCADE,
+        related_name='section_requirements',
+    )
+    faculty = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='assigned_requirements',
+        limit_choices_to={'role__code': 'FACULTY'},
+        help_text="Faculty assigned to teach this subject to this section",
+    )
+    periods_per_week = models.PositiveIntegerField(
+        default=1,
+        help_text="Number of teaching periods required per week",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('section', 'semester', 'subject')
+        ordering = ['section', 'subject']
+        verbose_name = "Section Subject Requirement"
+        verbose_name_plural = "Section Subject Requirements"
+
+    def __str__(self):
+        return (
+            f"{self.section} | {self.subject.code} | "
+            f"{self.periods_per_week}p/wk"
+        )
+
+
+# ==================================================
+# ROOM MAINTENANCE BLOCK  (Item 4)
+# ==================================================
+
+class RoomMaintenanceBlock(models.Model):
+    """
+    Records a date range during which a room is unavailable due to
+    maintenance.  RescheduleService uses these rows to nullify affected
+    TimetableEntry room assignments and re-allocate rooms for impacted
+    PeriodDefinition slots.
+    """
+    room = models.ForeignKey(
+        Room,
+        on_delete=models.CASCADE,
+        related_name='maintenance_blocks',
+        help_text="Room that will be unavailable",
+    )
+    start_date = models.DateField(
+        help_text="First date the room is under maintenance (inclusive)",
+    )
+    end_date = models.DateField(
+        help_text="Last date the room is under maintenance (inclusive)",
+    )
+    reason = models.CharField(
+        max_length=255,
+        help_text="Short description of the maintenance reason",
+    )
+    is_active = models.BooleanField(
+        default=True,
+        help_text="Uncheck to cancel/withdraw this maintenance block",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-start_date']
+        indexes = [
+            models.Index(fields=['room', 'start_date', 'end_date']),
+            models.Index(fields=['is_active', 'start_date']),
+        ]
+        verbose_name = "Room Maintenance Block"
+        verbose_name_plural = "Room Maintenance Blocks"
+
+    def __str__(self):
+        return (
+            f"{self.room} maintenance: {self.start_date} → {self.end_date} "
+            f"({'active' if self.is_active else 'inactive'})"
+        )
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        if self.start_date and self.end_date and self.end_date < self.start_date:
+            raise ValidationError("end_date must be on or after start_date.")
