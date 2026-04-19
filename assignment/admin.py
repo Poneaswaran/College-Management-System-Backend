@@ -157,12 +157,13 @@ class AssignmentAdmin(admin.ModelAdmin):
     
     def submission_stats(self, obj):
         """Display submission statistics"""
+        total = obj.total_submissions + obj.pending_submissions
+        percentage = (obj.total_submissions / total * 100) if total > 0 else 0.0
         return format_html(
-            '{} / {} ({:.1f}%)',
+            '{} / {} ({}%)',
             obj.total_submissions,
-            obj.total_submissions + obj.pending_submissions,
-            (obj.total_submissions / (obj.total_submissions + obj.pending_submissions) * 100) 
-            if (obj.total_submissions + obj.pending_submissions) > 0 else 0
+            total,
+            f"{percentage:.1f}",
         )
     submission_stats.short_description = 'Submissions'
     

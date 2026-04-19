@@ -14,6 +14,7 @@ from assignment.models import Assignment, AssignmentSubmission, AssignmentGrade
 from timetable.models import TimetableEntry, Subject
 from attendance.models import AttendanceSession, StudentAttendance
 from profile_management.services import AcademicService, FacultyProfileService, StudentProfileService
+from grades.models import CourseSectionAssignment, GradeBatch
 
 
 # ==================================================
@@ -179,6 +180,52 @@ class FacultyStudentListType:
     students: List[FacultyStudentType]
     total_count: int
 
+
+@strawberry.type
+class FacultyWorkloadCourseAssignmentType:
+    id: int
+    subject_name: str
+    subject_code: str
+    section_name: str
+    semester: int
+    hours_per_week: float
+    student_count: int
+    department: str
+
+
+@strawberry.type
+class FacultyWorkloadItemType:
+    id: int
+    faculty_name: str
+    employee_id: str
+    designation: str
+    department: str
+    profile_photo: Optional[str]
+    total_hours_per_week: float
+    max_hours_per_week: float
+    status: str
+    attendance_avg: float
+    pending_grading_count: int
+    course_assignments: List[FacultyWorkloadCourseAssignmentType]
+
+
+@strawberry.type
+class FacultyWorkloadSummaryStatsType:
+    total_faculty: int
+    overloaded_count: int
+    optimal_count: int
+    underloaded_count: int
+    avg_hours_per_week: float
+    total_course_sections: int
+
+
+@strawberry.type
+class FacultyWorkloadDataType:
+    department_name: str
+    semester_label: str
+    summary_stats: FacultyWorkloadSummaryStatsType
+    faculty_workloads: List[FacultyWorkloadItemType]
+
 # ==================================================
 # COURSE ENROLLMENT TYPES
 # ==================================================
@@ -266,6 +313,161 @@ class ProfileQuery:
     def my_faculty_profile(self, info: Info) -> Optional[FacultyProfileType]:
         """Get current user's faculty profile"""
         return FacultyProfileService.get_my_profile(info.context.request.user)
+
+    @strawberry.field
+    @require_auth
+    def faculty_workload(self, info: Info, semester_id: Optional[int] = None) -> Optional[FacultyWorkloadDataType]:
+        """
+        Faculty workload report for HOD/Admin screens.
+        Returns one department scope with per-faculty workload and summary stats.
+        """
+        user = info.context.request.user
+
+        if user.role.code not in ('HOD', 'ADMIN', 'PRINCIPAL', 'FACULTY'):
+            raise ValueError("Access denied. Only faculty leadership roles can view workload.")
+
+        # Resolve semester
+        if semester_id:
+            semester = Semester.objects.filter(id=semester_id).select_related('academic_year').first()
+            if not semester:
+                raise ValueError(f"Semester with id {semester_id} not found.")
+        else:
+            semester = Semester.objects.filter(is_current=True).select_related('academic_year').first()
+            if not semester:
+                raise ValueError("No current semester found.")
+
+        # Resolve department scope
+        department = None
+        if user.role.code in ('HOD', 'FACULTY'):
+            from profile_management.models import FacultyProfile
+            fp = FacultyProfile.objects.select_related('department').filter(user=user).first()
+            department = fp.department if fp and fp.department else user.department
+        else:
+            department = user.department
+
+        if not department:
+            from core.models import Department
+            department = Department.objects.filter(faculties__is_active=True).distinct().first() or Department.objects.first()
+
+        if not department:
+            raise ValueError("No department found to compute workload.")
+
+        from profile_management.models import FacultyProfile
+        faculty_profiles = FacultyProfile.objects.filter(
+            department=department,
+            is_active=True
+        ).select_related('user', 'department').order_by('first_name', 'id')
+
+        total_hours_sum = 0.0
+        total_course_sections = 0
+        overloaded_count = 0
+        optimal_count = 0
+        underloaded_count = 0
+        workload_items: List[FacultyWorkloadItemType] = []
+
+        for faculty in faculty_profiles:
+            assignments = CourseSectionAssignment.objects.filter(
+                faculty=faculty,
+                semester=semester,
+                is_active=True,
+                section__course__department=department,
+            ).select_related('subject', 'section', 'semester', 'subject__department')
+
+            course_items: List[FacultyWorkloadCourseAssignmentType] = []
+            total_hours = 0.0
+
+            for assignment in assignments:
+                hours_per_week = float(TimetableEntry.objects.filter(
+                    faculty=faculty.user,
+                    subject=assignment.subject,
+                    section=assignment.section,
+                    semester=semester,
+                    is_active=True,
+                ).count())
+
+                total_hours += hours_per_week
+                course_items.append(FacultyWorkloadCourseAssignmentType(
+                    id=assignment.id,
+                    subject_name=assignment.subject.name,
+                    subject_code=assignment.subject.code,
+                    section_name=assignment.section.name,
+                    semester=semester.number,
+                    hours_per_week=round(hours_per_week, 1),
+                    student_count=assignment.section.student_profiles.filter(is_active=True).count(),
+                    department=assignment.subject.department.name if assignment.subject.department else department.name,
+                ))
+
+            max_hours = float(faculty.teaching_load or 0)
+            if max_hours <= 0:
+                max_hours = 18.0
+
+            if total_hours > max_hours:
+                workload_status = 'OVERLOADED'
+                overloaded_count += 1
+            elif total_hours < (0.7 * max_hours):
+                workload_status = 'UNDERLOADED'
+                underloaded_count += 1
+            else:
+                workload_status = 'OPTIMAL'
+                optimal_count += 1
+
+            sessions = AttendanceSession.objects.filter(
+                timetable_entry__faculty=faculty.user,
+                timetable_entry__semester=semester,
+                timetable_entry__section__course__department=department,
+                status='CLOSED',
+            )
+            total_records = StudentAttendance.objects.filter(session__in=sessions).count()
+            present_records = StudentAttendance.objects.filter(
+                session__in=sessions,
+                status__in=['PRESENT', 'LATE'],
+            ).count()
+            attendance_avg = round((present_records / total_records * 100), 1) if total_records > 0 else 0.0
+
+            pending_grading_count = 0
+            for assignment in assignments:
+                grade_batch = GradeBatch.objects.filter(course_section_assignment=assignment).first()
+                if not grade_batch or grade_batch.status in ('DRAFT', 'REJECTED'):
+                    pending_grading_count += 1
+
+            workload_items.append(FacultyWorkloadItemType(
+                id=faculty.id,
+                faculty_name=faculty.full_name,
+                employee_id=faculty.user.register_number or f"FAC{faculty.user.id:04d}",
+                designation=faculty.designation,
+                department=faculty.department.name if faculty.department else department.name,
+                profile_photo=None,
+                total_hours_per_week=round(total_hours, 1),
+                max_hours_per_week=round(max_hours, 1),
+                status=workload_status,
+                attendance_avg=attendance_avg,
+                pending_grading_count=pending_grading_count,
+                course_assignments=course_items,
+            ))
+
+            total_hours_sum += total_hours
+            total_course_sections += len(course_items)
+
+        total_faculty = len(workload_items)
+        avg_hours = round((total_hours_sum / total_faculty), 1) if total_faculty > 0 else 0.0
+
+        summary = FacultyWorkloadSummaryStatsType(
+            total_faculty=total_faculty,
+            overloaded_count=overloaded_count,
+            optimal_count=optimal_count,
+            underloaded_count=underloaded_count,
+            avg_hours_per_week=avg_hours,
+            total_course_sections=total_course_sections,
+        )
+
+        semester_label = f"Semester {semester.number} — {semester.academic_year.year_code}"
+
+        return FacultyWorkloadDataType(
+            department_name=department.name,
+            semester_label=semester_label,
+            summary_stats=summary,
+            faculty_workloads=workload_items,
+        )
 
     @strawberry.field
     @require_auth
