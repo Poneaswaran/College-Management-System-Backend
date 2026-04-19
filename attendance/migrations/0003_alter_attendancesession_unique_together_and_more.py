@@ -5,6 +5,15 @@ from django.conf import settings
 from django.db import migrations, models
 
 
+def _check_constraint_kwargs(expression):
+    """Support both Django signatures for CheckConstraint."""
+    try:
+        models.CheckConstraint(condition=expression, name='__compat_probe__')
+        return {'condition': expression}
+    except TypeError:
+        return {'check': expression}
+
+
 class Migration(migrations.Migration):
 
     dependencies = [
@@ -34,7 +43,7 @@ class Migration(migrations.Migration):
         ),
         migrations.AddConstraint(
             model_name='attendancesession',
-            constraint=models.CheckConstraint(condition=models.Q(models.Q(('timetable_entry__isnull', False), ('combined_session__isnull', True)), models.Q(('timetable_entry__isnull', True), ('combined_session__isnull', False)), _connector='OR'), name='attendance_session_exactly_one_class_ref'),
+            constraint=models.CheckConstraint(name='attendance_session_exactly_one_class_ref', **_check_constraint_kwargs(models.Q(models.Q(('timetable_entry__isnull', False), ('combined_session__isnull', True)), models.Q(('timetable_entry__isnull', True), ('combined_session__isnull', False)), _connector='OR'))),
         ),
         migrations.AddConstraint(
             model_name='attendancesession',

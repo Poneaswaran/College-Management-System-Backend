@@ -7,9 +7,12 @@ REST endpoints that the AI Copilot reads and writes:
   GET  /timetable/ai/rooms/<semester_id>/         → available rooms per period
   GET  /timetable/ai/fairness/<semester_id>/      → overflow fairness report
   POST /timetable/ai/chat/                        → AI chat endpoint (Django proxies to AI service)
-  POST /timetable/ai/apply-constraints/           → apply NL-derived JSON constraints
+  POST /timetable/ai/apply-constraints/           → apply NL-derived JSON constraints (saves snapshot)
+  POST /timetable/ai/undo/<action_id>/            → undo a previous AI action batch
+  GET  /timetable/ai/snapshots/<semester_id>/     → list recent AI action snapshots
   POST /timetable/ai/swap-slots/                  → swap two timetable entries
   POST /timetable/ai/audit/                       → schedule soft-preference audit
+  POST /timetable/ai/explain-why-not/             → explain why a section/room conflict exists
 """
 
 import json
@@ -17,15 +20,16 @@ import logging
 
 import httpx
 from django.conf import settings as django_settings
-from django.http import JsonResponse, StreamingHttpResponse
+from django.http import JsonResponse
+from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.views import View
 from django.views.decorators.csrf import csrf_exempt
-from django.views.decorators.http import require_GET
 
 from core.models import Section
 from profile_management.models import Semester
 from timetable.models import (
+    AIActionSnapshot,
     NonRoomPeriod,
     OverflowLog,
     PeriodDefinition,
@@ -318,18 +322,67 @@ class ApplyConstraintsView(View):
     {
       "semester_id": <int>,
       "constraints": [
-        {"type": "move_entry", "entry_id": <int>, "target_period_id": <int>},
-        {"type": "assign_room", "entry_id": <int>, "room_id": <int>},
+        {"type": "move_entry",   "entry_id": <int>, "target_period_id": <int>},
+        {"type": "assign_room",  "entry_id": <int>, "room_id": <int>},
         {"type": "swap_entries", "entry1_id": <int>, "entry2_id": <int>}
       ]
     }
 
-    Executes a list of constraints produced by the LLM constraint-translator.
-    Each constraint type is validated by the existing Django services/validators
-    before being applied. On any failure the full batch is rolled back.
-
-    Returns per-constraint success/failure messages.
+    Workflow
+    --------
+    1. Collect all TimetableEntry PKs that would be touched by the constraint batch.
+    2. Snapshot their current state (period_definition_id, room_id, allocation_id)
+       into AIActionSnapshot BEFORE applying anything.
+    3. Apply all constraints atomically — any failure rolls the whole batch back.
+    4. Return the snapshot's action_id so the UI can offer an "Undo" button.
     """
+
+    # ── helpers ──────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _collect_affected_pks(constraints: list) -> list[int]:
+        """Return the set of TimetableEntry PKs that will be modified."""
+        pks: list[int] = []
+        for c in constraints:
+            ctype = c.get("type")
+            if ctype in ("move_entry", "assign_room"):
+                pk = c.get("entry_id")
+                if pk:
+                    pks.append(int(pk))
+            elif ctype == "swap_entries":
+                for key in ("entry1_id", "entry2_id"):
+                    pk = c.get(key)
+                    if pk:
+                        pks.append(int(pk))
+        return list(set(pks))
+
+    @staticmethod
+    def _build_snapshot(pks: list[int]) -> list[dict]:
+        """Fetch current state of each entry and return as a serialisable list."""
+        rows = []
+        for entry in TimetableEntry.objects.filter(pk__in=pks).select_related(
+            "section", "subject", "faculty", "room", "period_definition"
+        ):
+            rows.append(
+                {
+                    "entry_id": entry.pk,
+                    "section_id": entry.section_id,
+                    "subject_id": entry.subject_id,
+                    "faculty_id": entry.faculty_id,
+                    "period_definition_id": entry.period_definition_id,
+                    "room_id": entry.room_id,
+                    "allocation_id": entry.allocation_id,
+                    "notes": entry.notes,
+                    # Human-readable labels for the UI
+                    "section_name": str(entry.section),
+                    "subject_code": entry.subject.code,
+                    "room_number": entry.room.room_number if entry.room else None,
+                    "period_label": str(entry.period_definition),
+                }
+            )
+        return rows
+
+    # ── main handler ─────────────────────────────────────────────────────────
 
     def post(self, request):
         try:
@@ -345,12 +398,30 @@ class ApplyConstraintsView(View):
         if not isinstance(constraints, list) or not constraints:
             return JsonResponse({"error": "constraints must be a non-empty list."}, status=400)
 
-        results = []
-        errors  = []
+        # ── Step 1: Snapshot BEFORE applying ─────────────────────────────────
+        affected_pks = self._collect_affected_pks(constraints)
+        snapshot_rows = self._build_snapshot(affected_pks)
 
+        # Save the snapshot in its own transaction so it always commits,
+        # even if the apply transaction below rolls back.
         from django.db import transaction
-        from timetable.models import TimetableEntry
         from timetable.services import TimetableService
+
+        snapshot_obj = None
+        try:
+            with transaction.atomic():
+                snapshot_obj = AIActionSnapshot.objects.create(
+                    semester_id=semester_id,
+                    snapshot_data=snapshot_rows,
+                    constraints_applied=constraints,
+                )
+        except Exception as exc:
+            logger.error("Failed to save AI action snapshot: %s", exc)
+            # Non-fatal: proceed without undo capability
+
+        # ── Step 2: Apply constraints atomically ──────────────────────────────
+        results: list[dict] = []
+        errors:  list[dict] = []
 
         try:
             with transaction.atomic():
@@ -367,9 +438,9 @@ class ApplyConstraintsView(View):
                             results.append({"index": idx, "status": "ok", "type": ctype})
 
                         elif ctype == "assign_room":
-                            entry = TimetableEntry.objects.select_related("period_definition").get(
-                                pk=c["entry_id"]
-                            )
+                            entry = TimetableEntry.objects.select_related(
+                                "period_definition"
+                            ).get(pk=c["entry_id"])
                             TimetableService.assign_room_to_entry(entry, c.get("room_id"))
                             results.append({"index": idx, "status": "ok", "type": ctype})
 
@@ -377,9 +448,15 @@ class ApplyConstraintsView(View):
                             e1 = TimetableEntry.objects.get(pk=c["entry1_id"])
                             e2 = TimetableEntry.objects.get(pk=c["entry2_id"])
                             p1, p2 = e1.period_definition_id, e2.period_definition_id
-                            TimetableEntry.objects.filter(pk=e1.pk).update(period_definition=None)
-                            TimetableEntry.objects.filter(pk=e2.pk).update(period_definition_id=p1)
-                            TimetableEntry.objects.filter(pk=e1.pk).update(period_definition_id=p2)
+                            TimetableEntry.objects.filter(pk=e1.pk).update(
+                                period_definition=None
+                            )
+                            TimetableEntry.objects.filter(pk=e2.pk).update(
+                                period_definition_id=p1
+                            )
+                            TimetableEntry.objects.filter(pk=e1.pk).update(
+                                period_definition_id=p2
+                            )
                             results.append({"index": idx, "status": "ok", "type": ctype})
 
                         else:
@@ -392,11 +469,31 @@ class ApplyConstraintsView(View):
                         raise  # triggers rollback
 
         except Exception:
+            # If apply failed, mark the snapshot as 'reverted' so the UI
+            # knows there is nothing to undo (constraints were never applied).
+            if snapshot_obj is not None:
+                try:
+                    snapshot_obj.reverted = True
+                    snapshot_obj.reverted_at = timezone.now()
+                    snapshot_obj.save(update_fields=["reverted", "reverted_at"])
+                except Exception:
+                    pass
             return JsonResponse(
                 {"success": False, "applied": results, "errors": errors}, status=422
             )
 
-        return JsonResponse({"success": True, "applied": results, "errors": []})
+        return JsonResponse(
+            {
+                "success": True,
+                "applied": results,
+                "errors": [],
+                "action_id": str(snapshot_obj.action_id) if snapshot_obj else None,
+                "undo_url": (
+                    f"/timetable/ai/undo/{snapshot_obj.action_id}/"
+                    if snapshot_obj else None
+                ),
+            }
+        )
 
 
 # ─── AI Chat Proxy ─────────────────────────────────────────────────────────────
@@ -545,3 +642,323 @@ class ScheduleAuditView(View):
                 {"error": "AI service is unreachable."},
                 status=503,
             )
+
+
+# ─── Undo Last AI Action ───────────────────────────────────────────────────────
+
+@method_decorator(csrf_exempt, name="dispatch")
+class UndoAIActionView(View):
+    """
+    POST /timetable/ai/undo/<action_id>/
+
+    Reverts the TimetableEntry rows affected by a previous AI constraint batch
+    back to their state as of the AIActionSnapshot identified by action_id.
+
+    Workflow
+    --------
+    1. Look up the AIActionSnapshot by action_id (UUID).
+    2. Verify it hasn't already been reverted.
+    3. Inside a single atomic transaction, restore each entry's
+       period_definition_id, room_id, and allocation_id to the snapshot values.
+    4. Mark the snapshot as reverted so it cannot be undone twice.
+    5. Return a summary of restored entries.
+
+    The undo is intentionally shallow: it restores period slot and room
+    assignments. If the original action also modified a ResourceAllocation
+    record via assign_room_to_entry, the release/re-allocation is handled
+    by setting allocation_id directly from the snapshot (sufficient for
+    the common swap/move case).
+    """
+
+    def post(self, request, action_id: str):
+        try:
+            snapshot = AIActionSnapshot.objects.select_related("semester").get(
+                action_id=action_id
+            )
+        except AIActionSnapshot.DoesNotExist:
+            return JsonResponse(
+                {"error": f"No AI action snapshot found with id {action_id}."},
+                status=404,
+            )
+        except Exception:
+            return JsonResponse({"error": "Invalid action_id format."}, status=400)
+
+        if snapshot.reverted:
+            return JsonResponse(
+                {
+                    "error": "This AI action has already been undone.",
+                    "reverted_at": snapshot.reverted_at.isoformat()
+                    if snapshot.reverted_at
+                    else None,
+                },
+                status=409,
+            )
+
+        from django.db import transaction
+
+        restored: list[dict] = []
+        errors:   list[dict] = []
+
+        try:
+            with transaction.atomic():
+                for row in snapshot.snapshot_data:
+                    entry_id = row["entry_id"]
+                    try:
+                        entry = TimetableEntry.objects.select_for_update().get(pk=entry_id)
+                        entry.period_definition_id = row["period_definition_id"]
+                        entry.room_id              = row["room_id"]
+                        entry.allocation_id        = row["allocation_id"]
+                        entry.notes               = row.get("notes", entry.notes)
+                        # Use update() to skip full_clean (snapshot was valid state)
+                        TimetableEntry.objects.filter(pk=entry_id).update(
+                            period_definition_id=row["period_definition_id"],
+                            room_id=row["room_id"],
+                            allocation_id=row["allocation_id"],
+                        )
+                        restored.append(
+                            {
+                                "entry_id": entry_id,
+                                "section_name": row.get("section_name"),
+                                "restored_period_id": row["period_definition_id"],
+                                "restored_room_id": row["room_id"],
+                            }
+                        )
+                    except TimetableEntry.DoesNotExist:
+                        errors.append(
+                            {
+                                "entry_id": entry_id,
+                                "error": "Entry no longer exists — may have been deleted.",
+                            }
+                        )
+                    except Exception as exc:
+                        errors.append({"entry_id": entry_id, "error": str(exc)})
+                        raise  # rollback
+
+                # Mark snapshot as reverted
+                snapshot.reverted    = True
+                snapshot.reverted_at = timezone.now()
+                snapshot.save(update_fields=["reverted", "reverted_at"])
+
+        except Exception:
+            return JsonResponse(
+                {
+                    "success": False,
+                    "restored": restored,
+                    "errors": errors,
+                    "message": "Undo failed and was rolled back.",
+                },
+                status=422,
+            )
+
+        return JsonResponse(
+            {
+                "success": True,
+                "action_id": str(snapshot.action_id),
+                "entries_restored": len(restored),
+                "restored": restored,
+                "errors": errors,
+                "message": (
+                    f"Successfully reverted {len(restored)} entry/entries to their "
+                    f"pre-AI-action state."
+                ),
+            }
+        )
+
+
+# ─── AI Action Snapshot List ───────────────────────────────────────────────────
+
+class AIActionSnapshotListView(View):
+    """
+    GET /timetable/ai/snapshots/<semester_id>/
+
+    Returns recent AI action snapshots for the given semester so the UI can
+    display a history panel with each action's summary and an "Undo" button
+    for those that haven't been reverted yet.
+
+    Query params
+    ------------
+    limit  : max number of snapshots to return (default 20, max 100)
+    """
+
+    def get(self, request, semester_id: int):
+        limit = min(int(request.GET.get("limit", 20)), 100)
+
+        snapshots_qs = (
+            AIActionSnapshot.objects.filter(semester_id=semester_id)
+            .order_by("-applied_at")[:limit]
+        )
+
+        data = []
+        for s in snapshots_qs:
+            constraints = s.constraints_applied or []
+            affected_sections = list(
+                {row.get("section_name") for row in s.snapshot_data if row.get("section_name")}
+            )
+            data.append(
+                {
+                    "action_id": str(s.action_id),
+                    "applied_at": s.applied_at.isoformat(),
+                    "reverted": s.reverted,
+                    "reverted_at": s.reverted_at.isoformat() if s.reverted_at else None,
+                    "constraint_count": len(constraints),
+                    "affected_sections": affected_sections,
+                    "constraint_types": list({c.get("type") for c in constraints}),
+                    "undo_url": (
+                        f"/timetable/ai/undo/{s.action_id}/"
+                        if not s.reverted else None
+                    ),
+                }
+            )
+
+        return JsonResponse(
+            {"semester_id": semester_id, "snapshots": data, "count": len(data)},
+            safe=False,
+        )
+
+
+# ─── Explain Why Not ───────────────────────────────────────────────────────────
+
+@method_decorator(csrf_exempt, name="dispatch")
+class ExplainWhyNotView(View):
+    """
+    POST /timetable/ai/explain-why-not/
+
+    Answers diagnostic negative-space questions like:
+      "Why couldn't Section CSE-4A get Room P3 on Monday?"
+      "Why is Dr. Smith scheduled against CSE-3B on Wednesday P5?"
+
+    The key difference from the regular chat endpoint: this view enriches the
+    payload with the FULL timetable state (not the lightweight chat context)
+    and adds pre-computed diagnostic facts about the requested room/period so
+    the LLM doesn't have to guess — it reasons on structured data.
+
+    Body:
+    {
+      "message":  "Why couldn't Section CSE-4A get Room 101 on Monday P3?",
+      "semester_id": <int>,
+      "history": [...optional multi-turn...],
+      // Optional structured hints — Django computes these automatically:
+      "section_name": "CSE-4A",            // optional
+      "room_number":  "101",               // optional
+      "day":          "Monday",            // optional
+      "period_number": 3                   // optional
+    }
+    """
+
+    def post(self, request):
+        try:
+            body = json.loads(request.body)
+        except json.JSONDecodeError:
+            return JsonResponse({"error": "Invalid JSON body."}, status=400)
+
+        message     = body.get("message", "").strip()
+        semester_id = body.get("semester_id")
+        history     = body.get("history", [])
+
+        if not message:
+            return JsonResponse({"error": "message is required."}, status=400)
+        if not semester_id:
+            return JsonResponse({"error": "semester_id is required."}, status=400)
+
+        try:
+            semester = Semester.objects.select_related("academic_year").get(pk=semester_id)
+        except Semester.DoesNotExist:
+            return JsonResponse({"error": f"Semester {semester_id} not found."}, status=404)
+
+        # Build FULL timetable state (not the lightweight chat version)
+        from django.test import RequestFactory
+        state_view = TimetableStateView()
+        fake_get = RequestFactory().get("/")
+        state_response = state_view.get(fake_get, semester_id=semester_id)
+        timetable_state = json.loads(state_response.content)
+        if state_response.status_code != 200:
+            return state_response
+
+        # ── Compute structured diagnostic facts ──────────────────────────────
+        # Try to extract the room and period from optional params or body text.
+        section_name  = body.get("section_name")
+        room_number   = body.get("room_number")
+        day_hint      = body.get("day")
+        period_number = body.get("period_number")
+
+        diagnostic_context: dict = {}
+
+        day_map = {1: "Monday", 2: "Tuesday", 3: "Wednesday",
+                   4: "Thursday", 5: "Friday", 6: "Saturday", 7: "Sunday"}
+
+        if room_number:
+            # Find every entry occupying this room in the semester
+            room_occupants = []
+            try:
+                room_obj = Room.objects.get(room_number=room_number, is_active=True)
+                entries = (
+                    TimetableEntry.objects
+                    .filter(room=room_obj, semester_id=semester_id, is_active=True)
+                    .select_related("section", "subject", "faculty", "period_definition")
+                )
+                for e in entries:
+                    pd = e.period_definition
+                    room_occupants.append({
+                        "day": day_map.get(pd.day_of_week, str(pd.day_of_week)),
+                        "period_number": pd.period_number,
+                        "section_name": str(e.section),
+                        "faculty_name": e.faculty.get_full_name() if e.faculty else None,
+                        "subject_code": e.subject.code,
+                    })
+                diagnostic_context["room_occupancy"] = {
+                    "room_number": room_number,
+                    "capacity": room_obj.capacity,
+                    "room_type": room_obj.room_type,
+                    "all_bookings_this_semester": room_occupants,
+                }
+            except Room.DoesNotExist:
+                diagnostic_context["room_not_found"] = room_number
+
+        if section_name:
+            # Find all entries for this section
+            section_schedule = []
+            for entry in timetable_state.get("schedule", []):
+                if entry.get("section_name") == section_name:
+                    section_schedule.append(entry)
+            diagnostic_context["section_schedule"] = {
+                "section_name": section_name,
+                "current_entries": section_schedule,
+                "overflow_info": next(
+                    (
+                        o for o in timetable_state.get("overflow_summary", [])
+                        if o.get("section_name") == section_name
+                    ),
+                    None,
+                ),
+            }
+
+        payload = {
+            "message": message,
+            "semester_id": semester_id,
+            "timetable_state": timetable_state,
+            "diagnostic_context": diagnostic_context,
+            "history": history,
+        }
+
+        try:
+            with httpx.Client(timeout=90.0) as client:
+                response = client.post(
+                    f"{AI_BASE_URL}/timetable/explain-why-not",
+                    json=payload,
+                    headers=AI_HEADERS,
+                )
+                response.raise_for_status()
+                return JsonResponse(response.json(), safe=False)
+        except httpx.HTTPStatusError as exc:
+            logger.error("AI explain-why-not error: %s", exc.response.text)
+            return JsonResponse(
+                {"error": "AI service error.", "detail": exc.response.text},
+                status=exc.response.status_code,
+            )
+        except httpx.RequestError as exc:
+            logger.error("AI service unreachable: %s", exc)
+            return JsonResponse(
+                {"error": "AI service is unreachable. Is the FastAPI server running?"},
+                status=503,
+            )
+

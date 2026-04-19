@@ -272,6 +272,72 @@ class TimetableEntry(models.Model):
 
 
 # ==================================================
+# TIMETABLE APPROVAL REQUEST (HOD WORKFLOW)
+# ==================================================
+
+class TimetableApprovalRequest(models.Model):
+    """
+    Faculty-submitted timetable change proposal that must be reviewed by HOD.
+    """
+
+    STATUS_CHOICES = [
+        ('PENDING', 'Pending'),
+        ('APPROVED', 'Approved'),
+        ('REJECTED', 'Rejected'),
+    ]
+
+    department = models.ForeignKey(
+        Department,
+        on_delete=models.CASCADE,
+        related_name='timetable_approval_requests',
+    )
+    semester = models.ForeignKey(
+        Semester,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='timetable_approval_requests',
+    )
+    submitted_by = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='submitted_timetable_approval_requests',
+    )
+    change_summary = models.TextField()
+    note = models.TextField(blank=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')
+    slots = models.JSONField(
+        default=list,
+        blank=True,
+        help_text='List of proposed timetable slots for UI rendering.',
+    )
+    reviewed_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='reviewed_timetable_approval_requests',
+    )
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    review_note = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['department', 'status']),
+            models.Index(fields=['semester', 'status']),
+            models.Index(fields=['submitted_by', 'status']),
+        ]
+        verbose_name = 'Timetable Approval Request'
+        verbose_name_plural = 'Timetable Approval Requests'
+
+    def __str__(self):
+        return f"Timetable request #{self.pk} [{self.status}]"
+
+
+# ==================================================
 # SECTION COMBINING (Option A)
 # ==================================================
 
@@ -721,3 +787,71 @@ class RoomMaintenanceBlock(models.Model):
         from django.core.exceptions import ValidationError
         if self.start_date and self.end_date and self.end_date < self.start_date:
             raise ValidationError("end_date must be on or after start_date.")
+
+
+# ==================================================
+# AI ACTION SNAPSHOT  (Undo / State Versioning)
+# ==================================================
+
+import uuid
+
+
+class AIActionSnapshot(models.Model):
+    """
+    Point-in-time snapshot of TimetableEntry rows captured BEFORE an
+    AI-proposed constraint batch is applied.
+
+    Enables "Undo Last AI Action": reverting all affected entries to
+    their pre-change state by re-reading snapshot_data.
+
+    Lifecycle
+    ---------
+    1. ApplyConstraintsView collects affected entry PKs before committing.
+    2. Snapshots are saved in a *separate* atomic block that commits first.
+    3. The main constraint application runs in its own atomic block.
+    4. UndoAIActionView reads snapshot_data and restores each entry's
+       period_definition_id and room_id, then marks reverted=True.
+    """
+
+    action_id = models.UUIDField(
+        default=uuid.uuid4,
+        unique=True,
+        editable=False,
+        help_text="Stable identifier for this AI action batch (returned to the UI).",
+    )
+    semester = models.ForeignKey(
+        'profile_management.Semester',
+        on_delete=models.CASCADE,
+        related_name='ai_action_snapshots',
+    )
+    snapshot_data = models.JSONField(
+        help_text=(
+            "List of {"
+            "entry_id, section_id, subject_id, faculty_id, "
+            "period_definition_id, room_id, allocation_id, notes"
+            "} dicts — one per affected TimetableEntry."
+        )
+    )
+    constraints_applied = models.JSONField(
+        help_text="The constraint list that was submitted (for audit / display)."
+    )
+    reverted = models.BooleanField(
+        default=False,
+        help_text="True once the admin has undone this action.",
+    )
+    applied_at = models.DateTimeField(auto_now_add=True)
+    reverted_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-applied_at']
+        indexes = [
+            models.Index(fields=['semester', 'applied_at']),
+            models.Index(fields=['reverted', 'applied_at']),
+        ]
+        verbose_name = 'AI Action Snapshot'
+        verbose_name_plural = 'AI Action Snapshots'
+
+    def __str__(self) -> str:
+        status = 'reverted' if self.reverted else 'active'
+        return f"AI Action {self.action_id} on {self.applied_at:%Y-%m-%d %H:%M} ({status})"
+

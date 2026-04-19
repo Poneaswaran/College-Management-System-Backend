@@ -4,6 +4,15 @@ import django.db.models.deletion
 from django.db import migrations, models
 
 
+def _check_constraint_kwargs(expression):
+    """Support both Django signatures for CheckConstraint."""
+    try:
+        models.CheckConstraint(condition=expression, name="__compat_probe__")
+        return {"condition": expression}
+    except TypeError:
+        return {"check": expression}
+
+
 class Migration(migrations.Migration):
     initial = True
 
@@ -164,7 +173,7 @@ class Migration(migrations.Migration):
             options={
                 "constraints": [
                     models.CheckConstraint(
-                        condition=models.Q(("start_time__lt", models.F("end_time"))),
+                        **_check_constraint_kwargs(models.Q(("start_time__lt", models.F("end_time")))),
                         name="campus_management_valid_allocation_range",
                     )
                 ],

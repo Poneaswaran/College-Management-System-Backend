@@ -6,6 +6,8 @@ from .views import (
     PeriodDefinitionListView,
     SectionTimetableListView,
     FacultyScheduleListView,
+    HODTimetableApprovalRequestListView,
+    HODTimetableApprovalRequestStatusUpdateView,
     # Item 3 — bulk generation
     GenerateSemesterTimetableView,
     # Item 6 — PDF export
@@ -33,8 +35,11 @@ from .views_ai import (
     FairnessReportView,
     SwapSlotsView,
     ApplyConstraintsView,
+    UndoAIActionView,
+    AIActionSnapshotListView,
     TimetableChatView,
     ScheduleAuditView,
+    ExplainWhyNotView,
 )
 
 urlpatterns = [
@@ -75,17 +80,24 @@ urlpatterns = [
     path('combined-sessions/', CombinedClassSessionListCreateView.as_view(), name='combined-session-list-create'),
     path('combined-sessions/<int:pk>/', CombinedClassSessionDetailView.as_view(), name='combined-session-detail'),
 
+    # ── HOD Timetable Approval Workflow ───────────────────────────────────
+    path('hod/approval-requests/', HODTimetableApprovalRequestListView.as_view(), name='hod-approval-request-list'),
+    path('hod/approval-requests/<int:pk>/status/', HODTimetableApprovalRequestStatusUpdateView.as_view(), name='hod-approval-request-status-update'),
+
     # ── AI Timetable Copilot ──────────────────────────────────────────────
     # Read endpoints — expose timetable state to the AI
     path('ai/state/<int:semester_id>/', TimetableStateView.as_view(), name='ai-timetable-state'),
     path('ai/rooms/<int:semester_id>/', AvailableRoomsView.as_view(), name='ai-available-rooms'),
     path('ai/fairness/<int:semester_id>/', FairnessReportView.as_view(), name='ai-fairness-report'),
+    path('ai/snapshots/<int:semester_id>/', AIActionSnapshotListView.as_view(), name='ai-action-snapshots'),
 
     # Write endpoints — AI proposes, admin confirms, Django applies
     path('ai/swap-slots/', SwapSlotsView.as_view(), name='ai-swap-slots'),
     path('ai/apply-constraints/', ApplyConstraintsView.as_view(), name='ai-apply-constraints'),
+    path('ai/undo/<str:action_id>/', UndoAIActionView.as_view(), name='ai-undo-action'),
 
     # Proxy endpoints — Django enriches payload and forwards to FastAPI
     path('ai/chat/', TimetableChatView.as_view(), name='ai-chat'),
     path('ai/audit/', ScheduleAuditView.as_view(), name='ai-audit'),
+    path('ai/explain-why-not/', ExplainWhyNotView.as_view(), name='ai-explain-why-not'),
 ]
