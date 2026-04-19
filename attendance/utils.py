@@ -21,16 +21,21 @@ def get_active_sessions_for_student(student_profile):
     today = timezone.now().date()
     section = student_profile.section
     
-    # Get active sessions for student's section today
+    # Get active sessions for student's section today (direct or combined)
     return AttendanceSession.objects.filter(
-        timetable_entry__section=section,
+        Q(timetable_entry__section=section) | Q(combined_session__sections=section),
         date=today,
         status='ACTIVE',
         opened_at__isnull=False
-    ).select_related(
+    ).distinct().select_related(
         'timetable_entry__subject',
         'timetable_entry__faculty__user',
-        'timetable_entry__period_definition'
+        'timetable_entry__period_definition',
+        'combined_session__subject',
+        'combined_session__faculty__user',
+        'combined_session__period_definition'
+    ).prefetch_related(
+        'combined_session__sections'
     )
 
 
@@ -70,25 +75,35 @@ def get_faculty_sessions_for_today(faculty_user):
         QuerySet of AttendanceSession
     """
     from attendance.models import AttendanceSession
-    from timetable.models import TimetableEntry
+    from timetable.models import TimetableEntry, CombinedClassSession
     
     today = timezone.now().date()
     
-    # Get faculty's timetable entries
     timetable_entries = TimetableEntry.objects.filter(
         faculty=faculty_user,
         is_active=True
     )
-    
-    # Get or create sessions for today
+    combined_sessions = CombinedClassSession.objects.filter(
+        faculty=faculty_user,
+        is_active=True
+    )
+
     sessions = AttendanceSession.objects.filter(
-        timetable_entry__in=timetable_entries,
         date=today
+    ).filter(
+        Q(timetable_entry__in=timetable_entries) | Q(combined_session__in=combined_sessions)
     ).select_related(
         'timetable_entry__subject',
         'timetable_entry__section',
-        'timetable_entry__period_definition'
-    ).order_by('timetable_entry__period_definition__start_time')
+        'timetable_entry__period_definition',
+        'combined_session__subject',
+        'combined_session__period_definition'
+    ).prefetch_related(
+        'combined_session__sections'
+    ).order_by(
+        'timetable_entry__period_definition__start_time',
+        'combined_session__period_definition__start_time'
+    )
     
     return sessions
 
@@ -105,7 +120,7 @@ def auto_create_sessions_for_faculty(faculty_user, date=None):
         List of created AttendanceSession instances
     """
     from attendance.models import AttendanceSession
-    from timetable.models import TimetableEntry
+    from timetable.models import TimetableEntry, CombinedClassSession
     
     if date is None:
         date = timezone.now().date()
@@ -118,12 +133,30 @@ def auto_create_sessions_for_faculty(faculty_user, date=None):
         is_active=True,
         period_definition__day_of_week=day_of_week
     ).select_related('period_definition')
+
+    combined_classes = CombinedClassSession.objects.filter(
+        faculty=faculty_user,
+        is_active=True,
+        period_definition__day_of_week=day_of_week
+    ).select_related('period_definition')
     
     created_sessions = []
     for entry in timetable_entries:
         # Create session if doesn't exist
         session, created = AttendanceSession.objects.get_or_create(
             timetable_entry=entry,
+            date=date,
+            defaults={
+                'status': 'SCHEDULED',
+                'attendance_window_minutes': 10
+            }
+        )
+        if created:
+            created_sessions.append(session)
+
+    for combined in combined_classes:
+        session, created = AttendanceSession.objects.get_or_create(
+            combined_session=combined,
             date=date,
             defaults={
                 'status': 'SCHEDULED',
@@ -165,8 +198,10 @@ def calculate_student_attendance_summary(student_profile, semester=None):
     # Get all attendances for student in semester (excluding blocked sessions)
     attendances = StudentAttendance.objects.filter(
         student=student_profile,
-        session__timetable_entry__semester=semester,
         session__status='CLOSED'
+    ).filter(
+        Q(session__timetable_entry__semester=semester)
+        | Q(session__combined_session__semester=semester)
     ).exclude(
         session__status__in=['BLOCKED', 'CANCELLED']
     )
@@ -209,9 +244,10 @@ def calculate_subject_attendance(student_profile, subject, semester=None):
     
     attendances = StudentAttendance.objects.filter(
         student=student_profile,
-        session__timetable_entry__subject=subject,
-        session__timetable_entry__semester=semester,
         session__status='CLOSED'
+    ).filter(
+        Q(session__timetable_entry__subject=subject, session__timetable_entry__semester=semester)
+        | Q(session__combined_session__subject=subject, session__combined_session__semester=semester)
     ).exclude(
         session__status__in=['BLOCKED', 'CANCELLED']
     )
@@ -300,9 +336,10 @@ def auto_mark_absent_students(session):
     """
     from attendance.models import StudentAttendance
     
-    # Get all students in the section
-    section = session.timetable_entry.section
-    all_students = section.students.all()
+    # Get all students in the class (one or two sections)
+    all_students = []
+    for section in session.sections:
+        all_students.extend(list(section.student_profiles.all()))
     
     # Get students who already marked attendance
     marked_students = StudentAttendance.objects.filter(
@@ -336,7 +373,7 @@ def get_session_statistics(session):
     """
     from attendance.models import StudentAttendance
     
-    total_students = session.timetable_entry.section.students.count()
+    total_students = session.total_students
     present = session.student_attendances.filter(status='PRESENT').count()
     absent = session.student_attendances.filter(status='ABSENT').count()
     late = session.student_attendances.filter(status='LATE').count()
@@ -369,15 +406,23 @@ def bulk_update_attendance_reports(semester):
     from profile_management.models import StudentProfile
     from timetable.models import Subject
     
-    # Get all unique student-subject combinations in the semester
-    combinations = StudentAttendance.objects.filter(
+    # Get all unique student-subject combinations in the semester (timetable + combined)
+    combos = set()
+
+    for combo in StudentAttendance.objects.filter(
         session__timetable_entry__semester=semester
-    ).values('student', 'session__timetable_entry__subject').distinct()
+    ).values('student', 'session__timetable_entry__subject').distinct():
+        combos.add((combo['student'], combo['session__timetable_entry__subject']))
+
+    for combo in StudentAttendance.objects.filter(
+        session__combined_session__semester=semester
+    ).values('student', 'session__combined_session__subject').distinct():
+        combos.add((combo['student'], combo['session__combined_session__subject']))
     
     updated_count = 0
-    for combo in combinations:
-        student = StudentProfile.objects.get(id=combo['student'])
-        subject = Subject.objects.get(id=combo['session__timetable_entry__subject'])
+    for student_id, subject_id in combos:
+        student = StudentProfile.objects.get(id=student_id)
+        subject = Subject.objects.get(id=subject_id)
         
         AttendanceReport.update_for_student_subject(student, subject, semester)
         updated_count += 1

@@ -4,6 +4,7 @@ Validators for Attendance System
 from django.core.exceptions import ValidationError
 from django.utils import timezone
 from django.db.models import Q
+from datetime import timedelta
 
 
 class AttendanceValidator:
@@ -36,10 +37,10 @@ class AttendanceValidator:
         
         # Check if date is valid (not too far in past or future)
         today = timezone.now().date()
-        if date < today - timezone.timedelta(days=7):
+        if date < today - timedelta(days=7):
             return False, "Cannot open attendance session for more than 7 days in the past"
         
-        if date > today + timezone.timedelta(days=7):
+        if date > today + timedelta(days=7):
             return False, "Cannot open attendance session for more than 7 days in the future"
         
         # Check if session already exists
@@ -57,6 +58,39 @@ class AttendanceValidator:
                 return False, "Session is already closed"
         
         return True, ""
+
+    @staticmethod
+    def validate_combined_session_opening(combined_session, date, faculty_user):
+        """Validate opening attendance for a CombinedClassSession."""
+        from attendance.models import AttendanceSession
+
+        if not combined_session.is_active:
+            return False, "Combined session is not active"
+
+        if not combined_session.faculty_id or combined_session.faculty_id != faculty_user.id:
+            return False, "You are not assigned to teach this combined class"
+
+        today = timezone.now().date()
+        if date < today - timedelta(days=7):
+            return False, "Cannot open attendance session for more than 7 days in the past"
+
+        if date > today + timedelta(days=7):
+            return False, "Cannot open attendance session for more than 7 days in the future"
+
+        existing_session = AttendanceSession.objects.filter(
+            combined_session=combined_session,
+            date=date,
+        ).first()
+
+        if existing_session:
+            if existing_session.status in ['BLOCKED', 'CANCELLED']:
+                return False, f"Session is {existing_session.status}. Reason: {existing_session.cancellation_reason}"
+            elif existing_session.status == 'ACTIVE':
+                return False, "Session is already active"
+            elif existing_session.status == 'CLOSED':
+                return False, "Session is already closed"
+
+        return True, ""
     
     @staticmethod
     def validate_session_blocking(session, faculty_user):
@@ -72,7 +106,7 @@ class AttendanceValidator:
         """
         # Check if user is the assigned faculty or admin
         if faculty_user.role.code not in ['ADMIN', 'HOD']:
-            if session.timetable_entry.faculty.id != faculty_user.id:
+            if not session.faculty or session.faculty.id != faculty_user.id:
                 return False, "Only the assigned faculty or admin can block this session"
         
         # Check if session is already closed
@@ -111,9 +145,13 @@ class AttendanceValidator:
             return False, "Attendance window has expired"
         
         # Check if student belongs to the section
-        section = session.timetable_entry.section
-        if not section.student_profiles.filter(id=student_profile.id).exists():
-            return False, "You are not enrolled in this section"
+        allowed = False
+        for section in session.sections:
+            if section.student_profiles.filter(id=student_profile.id).exists():
+                allowed = True
+                break
+        if not allowed:
+            return False, "You are not enrolled in this class"
         
         # Check if attendance already marked
         existing_attendance = StudentAttendance.objects.filter(
@@ -149,13 +187,17 @@ class AttendanceValidator:
         
         # Check if faculty teaches this class (unless admin)
         if faculty_user.role.code not in ['ADMIN', 'HOD']:
-            if session.timetable_entry.faculty.id != faculty_user.id:
+            if not session.faculty or session.faculty.id != faculty_user.id:
                 return False, "You can only manually mark attendance for classes you teach"
         
         # Check if student belongs to section
-        section = session.timetable_entry.section
-        if not section.student_profiles.filter(id=student_profile.id).exists():
-            return False, "Student is not enrolled in this section"
+        allowed = False
+        for section in session.sections:
+            if section.student_profiles.filter(id=student_profile.id).exists():
+                allowed = True
+                break
+        if not allowed:
+            return False, "Student is not enrolled in this class"
         
         # Check if session is blocked
         if session.status in ['BLOCKED', 'CANCELLED']:
@@ -182,7 +224,7 @@ class AttendanceValidator:
         
         # Faculty can view images of students in classes they teach
         if requesting_user.role.code == 'FACULTY':
-            if attendance.session.timetable_entry.faculty.id == requesting_user.id:
+            if attendance.session.faculty and attendance.session.faculty.id == requesting_user.id:
                 return True, ""
         
         # Admin can view all

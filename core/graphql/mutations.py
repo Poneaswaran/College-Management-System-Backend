@@ -270,7 +270,7 @@ class Mutation:
         )
 
     @strawberry.mutation
-    def create_user(self, info, data: CreateUserInput) -> CreateUserResponse:
+    def create_user(self, info: Info, data: CreateUserInput) -> CreateUserResponse:
         """
         Admin-only: Create a new user with password hashing
         Requires ADMIN or SUPER_ADMIN role

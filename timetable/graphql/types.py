@@ -3,7 +3,7 @@ GraphQL types for timetable management
 """
 import strawberry
 import strawberry_django
-from typing import Optional
+from typing import Optional, List
 from datetime import date, time
 
 from profile_management.models import AcademicYear, Semester
@@ -12,7 +12,8 @@ from timetable.models import (
     Subject,
     PeriodDefinition,
     Room,
-    TimetableEntry
+    TimetableEntry,
+    CombinedClassSession
 )
 from core.graphql.types import DepartmentType, SectionType, UserType
 
@@ -138,3 +139,23 @@ class TimetableEntryType:
     semester: SemesterType
     is_active: bool
     notes: str
+
+
+# ==================================================
+# COMBINED CLASS SESSION TYPE
+# ==================================================
+
+@strawberry_django.type(CombinedClassSession)
+class CombinedClassSessionType:
+    id: int
+    semester: SemesterType
+    subject: SubjectType
+    faculty: Optional[UserType]
+    period_definition: PeriodDefinitionType
+    room: Optional[RoomType]
+    is_active: bool
+    notes: str
+
+    @strawberry_django.field
+    def sections(self) -> List[SectionType]:
+        return list(self.sections.all())

@@ -6,6 +6,7 @@ from django.db import models
 from django.core.exceptions import ValidationError
 from django.utils import timezone
 from django.conf import settings
+from django.db.models import Q
 import os
 
 
@@ -16,12 +17,16 @@ def attendance_image_path(instance, filename):
     """
     ext = filename.split('.')[-1]
     timestamp = timezone.now().strftime('%Y%m%d_%H%M%S')
+    session = instance.session
+    semester_id = session.timetable_entry.semester_id if session.timetable_entry_id else session.combined_session.semester_id
+    section_id = getattr(instance.student, 'section_id', None) or instance.student.section.id
+
     return os.path.join(
         'attendance',
         'images',
-        str(instance.session.timetable_entry.semester.id),
-        str(instance.session.timetable_entry.section.id),
-        instance.session.date.strftime('%Y-%m-%d'),
+        str(semester_id),
+        str(section_id),
+        session.date.strftime('%Y-%m-%d'),
         f"{instance.student.id}_{timestamp}.{ext}"
     )
 
@@ -44,8 +49,19 @@ class AttendanceSession(models.Model):
     timetable_entry = models.ForeignKey(
         'timetable.TimetableEntry',
         on_delete=models.CASCADE,
+        null=True,
+        blank=True,
         related_name='attendance_sessions',
-        help_text="The timetable entry (class) for which attendance is being taken"
+        help_text="The timetable entry (class) for which attendance is being taken (if not a combined class)"
+    )
+
+    combined_session = models.ForeignKey(
+        'timetable.CombinedClassSession',
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='attendance_sessions',
+        help_text="The combined class session for which attendance is being taken (if combined)"
     )
     
     # Session Details
@@ -117,27 +133,97 @@ class AttendanceSession(models.Model):
         verbose_name = 'Attendance Session'
         verbose_name_plural = 'Attendance Sessions'
         ordering = ['-date', '-opened_at']
-        unique_together = [['timetable_entry', 'date']]
         indexes = [
             models.Index(fields=['date', 'status']),
             models.Index(fields=['timetable_entry', 'date']),
+            models.Index(fields=['combined_session', 'date']),
             models.Index(fields=['status', 'opened_at']),
+        ]
+
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    (Q(timetable_entry__isnull=False) & Q(combined_session__isnull=True))
+                    | (Q(timetable_entry__isnull=True) & Q(combined_session__isnull=False))
+                ),
+                name='attendance_session_exactly_one_class_ref',
+            ),
+            models.UniqueConstraint(
+                fields=['timetable_entry', 'date'],
+                condition=Q(timetable_entry__isnull=False),
+                name='attendance_unique_timetable_entry_date',
+            ),
+            models.UniqueConstraint(
+                fields=['combined_session', 'date'],
+                condition=Q(combined_session__isnull=False),
+                name='attendance_unique_combined_session_date',
+            ),
         ]
     
     def __str__(self):
-        return f"{self.timetable_entry.subject.name} - {self.timetable_entry.section.name} - {self.date} ({self.status})"
+        return f"{self.subject_name} - {self.sections_name} - {self.date} ({self.status})"
+
+    @property
+    def is_combined(self) -> bool:
+        return bool(self.combined_session_id)
+
+    @property
+    def subject(self):
+        if self.timetable_entry_id:
+            return self.timetable_entry.subject
+        return self.combined_session.subject
+
+    @property
+    def faculty(self):
+        if self.timetable_entry_id:
+            return self.timetable_entry.faculty
+        return self.combined_session.faculty
+
+    @property
+    def period_definition(self):
+        if self.timetable_entry_id:
+            return self.timetable_entry.period_definition
+        return self.combined_session.period_definition
+
+    @property
+    def semester(self):
+        if self.timetable_entry_id:
+            return self.timetable_entry.semester
+        return self.combined_session.semester
+
+    @property
+    def sections(self):
+        if self.timetable_entry_id:
+            return [self.timetable_entry.section]
+        return list(self.combined_session.sections.all())
+
+    @property
+    def subject_name(self) -> str:
+        return self.subject.name
+
+    @property
+    def sections_name(self) -> str:
+        if self.timetable_entry_id:
+            return self.timetable_entry.section.name
+        return " + ".join([s.name for s in self.combined_session.sections.all()])
     
     def clean(self):
         """Validate attendance session"""
         super().clean()
+
+        # Ensure exactly one class reference is present.
+        if bool(self.timetable_entry_id) == bool(self.combined_session_id):
+            raise ValidationError("AttendanceSession must reference exactly one of timetable_entry or combined_session")
         
         # Ensure date is not in future beyond reasonable limit
         if self.date and self.date > (timezone.now().date() + timezone.timedelta(days=7)):
             raise ValidationError("Cannot create attendance session more than 7 days in advance")
         
-        # Ensure timetable entry is active
-        if self.timetable_entry and not self.timetable_entry.is_active:
+        # Ensure the class reference is active
+        if self.timetable_entry_id and self.timetable_entry and not self.timetable_entry.is_active:
             raise ValidationError("Cannot create attendance session for inactive timetable entry")
+        if self.combined_session_id and self.combined_session and not self.combined_session.is_active:
+            raise ValidationError("Cannot create attendance session for inactive combined session")
         
         # If blocking, ensure reason is provided
         if self.status in ['BLOCKED', 'CANCELLED'] and not self.cancellation_reason:
@@ -177,8 +263,14 @@ class AttendanceSession(models.Model):
     
     @property
     def total_students(self):
-        """Get total number of students in the section"""
-        return self.timetable_entry.section.student_profiles.count()
+        """Get total number of students in the class (1 section or 2 combined)."""
+        if self.timetable_entry_id:
+            return self.timetable_entry.section.student_profiles.count()
+
+        total = 0
+        for section in self.combined_session.sections.all():
+            total += section.student_profiles.count()
+        return total
     
     @property
     def present_count(self):
@@ -308,13 +400,24 @@ class StudentAttendance(models.Model):
         """Validate student attendance"""
         super().clean()
         
-        # Ensure student belongs to the section
+        # Ensure student belongs to the class sections
         if self.session and self.student:
-            section = self.session.timetable_entry.section
-            if not section.student_profiles.filter(id=self.student.id).exists():
-                raise ValidationError(
-                    f"Student {self.student.full_name} does not belong to section {section.name}"
-                )
+            if self.session.timetable_entry_id:
+                section = self.session.timetable_entry.section
+                if not section.student_profiles.filter(id=self.student.id).exists():
+                    raise ValidationError(
+                        f"Student {self.student.full_name} does not belong to section {section.name}"
+                    )
+            else:
+                allowed = False
+                for section in self.session.combined_session.sections.all():
+                    if section.student_profiles.filter(id=self.student.id).exists():
+                        allowed = True
+                        break
+                if not allowed:
+                    raise ValidationError(
+                        "Student does not belong to any section in this combined class"
+                    )
         
         # Ensure image is provided for PRESENT status (unless manually marked)
         if self.status == 'PRESENT' and not self.is_manually_marked:
@@ -425,14 +528,20 @@ class AttendanceReport(models.Model):
     
     def calculate(self):
         """Calculate attendance statistics from StudentAttendance records"""
-        # Get all attendance sessions for this student in this subject
         attendances = StudentAttendance.objects.filter(
             student=self.student,
-            session__timetable_entry__subject=self.subject,
-            session__timetable_entry__semester=self.semester,
-            session__status__in=['CLOSED']  # Only count closed sessions
+            session__status__in=['CLOSED'],
+        ).filter(
+            Q(
+                session__timetable_entry__subject=self.subject,
+                session__timetable_entry__semester=self.semester,
+            )
+            | Q(
+                session__combined_session__subject=self.subject,
+                session__combined_session__semester=self.semester,
+            )
         ).exclude(
-            session__status__in=['BLOCKED', 'CANCELLED']  # Exclude blocked sessions
+            session__status__in=['BLOCKED', 'CANCELLED']
         )
         
         self.total_classes = attendances.count()

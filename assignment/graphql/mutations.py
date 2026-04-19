@@ -2,6 +2,7 @@
 GraphQL Mutations for Assignment System
 """
 import strawberry
+from strawberry.types import Info
 from typing import Optional
 from django.utils import timezone
 from django.core.files.base import ContentFile
@@ -32,7 +33,7 @@ class AssignmentMutation:
     @strawberry.mutation
     def create_assignment(
         self,
-        info,
+        info: Info,
         input: CreateAssignmentInput
     ) -> AssignmentType:
         """
@@ -133,7 +134,7 @@ class AssignmentMutation:
     @strawberry.mutation
     def update_assignment(
         self,
-        info,
+        info: Info,
         input: UpdateAssignmentInput
     ) -> AssignmentType:
         """
@@ -220,7 +221,7 @@ class AssignmentMutation:
     @strawberry.mutation
     def publish_assignment(
         self,
-        info,
+        info: Info,
         assignment_id: int
     ) -> AssignmentType:
         """
@@ -253,7 +254,7 @@ class AssignmentMutation:
     @strawberry.mutation
     def close_assignment(
         self,
-        info,
+        info: Info,
         assignment_id: int
     ) -> AssignmentType:
         """
@@ -281,7 +282,7 @@ class AssignmentMutation:
     @strawberry.mutation
     def delete_assignment(
         self,
-        info,
+        info: Info,
         assignment_id: int
     ) -> bool:
         """
@@ -311,7 +312,7 @@ class AssignmentMutation:
     @strawberry.mutation
     def submit_assignment(
         self,
-        info,
+        info: Info,
         input: SubmitAssignmentInput
     ) -> SubmitAssignmentResponse:
         """
@@ -383,7 +384,7 @@ class AssignmentMutation:
     @strawberry.mutation
     def grade_assignment(
         self,
-        info,
+        info: Info,
         input: GradeAssignmentInput
     ) -> GradeAssignmentResponse:
         """
@@ -458,7 +459,7 @@ class AssignmentMutation:
     @strawberry.mutation
     def return_submission(
         self,
-        info,
+        info: Info,
         input: ReturnSubmissionInput
     ) -> AssignmentSubmissionType:
         """

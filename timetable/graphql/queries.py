@@ -11,14 +11,16 @@ from timetable.models import (
     Subject,
     PeriodDefinition,
     Room,
-    TimetableEntry
+    TimetableEntry,
+    CombinedClassSession,
 )
 from .types import (
     SemesterType,
     SubjectType,
     PeriodDefinitionType,
     RoomType,
-    TimetableEntryType
+    TimetableEntryType,
+    CombinedClassSessionType,
 )
 from core.graphql.auth import require_auth
 
@@ -102,6 +104,48 @@ class TimetableQuery:
 
     @strawberry.field
     @require_auth
+    def section_combined_sessions(
+        self,
+        info: Info,
+        section_id: int,
+        semester_id: Optional[int] = None,
+    ) -> List[CombinedClassSessionType]:
+        """Get combined-class sessions that include this section."""
+        if semester_id:
+            semester = Semester.objects.filter(id=semester_id).first()
+        else:
+            semester = Semester.objects.filter(is_current=True).first()
+
+        if not semester:
+            return []
+
+        sessions = (
+            CombinedClassSession.objects.filter(
+                semester=semester,
+                sections__id=section_id,
+                is_active=True,
+            )
+            .distinct()
+            .select_related(
+                'semester',
+                'semester__academic_year',
+                'subject',
+                'subject__department',
+                'faculty',
+                'faculty__role',
+                'faculty__department',
+                'room',
+                'period_definition',
+                'period_definition__semester',
+            )
+            .prefetch_related('sections', 'sections__course')
+            .order_by('period_definition__day_of_week', 'period_definition__start_time')
+        )
+
+        return list(sessions)
+
+    @strawberry.field
+    @require_auth
     def faculty_schedule(
         self,
         info: Info,
@@ -148,6 +192,44 @@ class TimetableQuery:
         )
         
         return list(entries)
+
+    @strawberry.field
+    @require_auth
+    def faculty_combined_schedule(
+        self,
+        info: Info,
+        faculty_id: int,
+        semester_id: Optional[int] = None,
+    ) -> List[CombinedClassSessionType]:
+        """Get combined-class teaching schedule for a faculty member."""
+        if semester_id:
+            semester = Semester.objects.filter(id=semester_id).first()
+        else:
+            semester = Semester.objects.filter(is_current=True).first()
+
+        if not semester:
+            return []
+
+        sessions = (
+            CombinedClassSession.objects.filter(
+                faculty_id=faculty_id,
+                semester=semester,
+                is_active=True,
+            )
+            .select_related(
+                'semester',
+                'semester__academic_year',
+                'subject',
+                'subject__department',
+                'room',
+                'period_definition',
+                'period_definition__semester',
+            )
+            .prefetch_related('sections', 'sections__course')
+            .order_by('period_definition__day_of_week', 'period_definition__start_time')
+        )
+
+        return list(sessions)
 
     @strawberry.field
     @require_auth
@@ -343,6 +425,58 @@ class TimetableQuery:
             
             return list(entries)
             
+        except StudentProfile.DoesNotExist:
+            return []
+
+    @strawberry.field
+    @require_auth
+    def my_combined_sessions(
+        self,
+        info: Info,
+        register_number: str,
+        semester_id: Optional[int] = None,
+    ) -> List[CombinedClassSessionType]:
+        """Get combined-class sessions that include the student's section."""
+        try:
+            student_profile = StudentProfile.objects.select_related('section').get(
+                register_number=register_number
+            )
+
+            if not student_profile.section:
+                return []
+
+            if semester_id:
+                semester = Semester.objects.filter(id=semester_id).first()
+            else:
+                semester = Semester.objects.filter(is_current=True).first()
+
+            if not semester:
+                return []
+
+            sessions = (
+                CombinedClassSession.objects.filter(
+                    semester=semester,
+                    sections=student_profile.section,
+                    is_active=True,
+                )
+                .distinct()
+                .select_related(
+                    'semester',
+                    'semester__academic_year',
+                    'subject',
+                    'subject__department',
+                    'faculty',
+                    'faculty__role',
+                    'faculty__department',
+                    'room',
+                    'period_definition',
+                    'period_definition__semester',
+                )
+                .prefetch_related('sections', 'sections__course')
+                .order_by('period_definition__day_of_week', 'period_definition__start_time')
+            )
+
+            return list(sessions)
         except StudentProfile.DoesNotExist:
             return []
     

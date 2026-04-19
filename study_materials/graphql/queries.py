@@ -2,6 +2,7 @@
 GraphQL Queries for Study Materials System
 """
 import strawberry
+from strawberry.types import Info
 from typing import List, Optional
 from django.db.models import Q, Count
 
@@ -31,7 +32,7 @@ class StudyMaterialQuery:
     
     @strawberry.field
     @require_auth
-    def study_material(self, info, id: strawberry.ID) -> Optional[StudyMaterialType]:
+    def study_material(self, info: Info, id: strawberry.ID) -> Optional[StudyMaterialType]:
         """
         Get a single study material by ID
         """
@@ -55,7 +56,7 @@ class StudyMaterialQuery:
     @require_auth
     def study_materials(
         self,
-        info,
+        info: Info,
         subject_id: Optional[strawberry.ID] = None,
         section_id: Optional[strawberry.ID] = None,
         material_type: Optional[str] = None,
@@ -130,7 +131,7 @@ class StudyMaterialQuery:
     @require_auth
     def my_uploaded_materials(
         self,
-        info,
+        info: Info,
         status: Optional[str] = None
     ) -> List[StudyMaterialType]:
         """
@@ -153,7 +154,7 @@ class StudyMaterialQuery:
     @require_auth
     def material_statistics(
         self,
-        info,
+        info: Info,
         material_id: strawberry.ID
     ) -> Optional[MaterialStatisticsType]:
         """
@@ -199,7 +200,7 @@ class StudyMaterialQuery:
     @require_auth
     def material_download_list(
         self,
-        info,
+        info: Info,
         material_id: strawberry.ID
     ) -> List[StudyMaterialDownloadType]:
         """
@@ -236,7 +237,7 @@ class StudyMaterialQuery:
     
     @strawberry.field
     @require_auth
-    def my_faculty_subjects_sections(self, info) -> List[FacultySubjectSectionType]:
+    def my_faculty_subjects_sections(self, info: Info) -> List[FacultySubjectSectionType]:
         """
         Get all subjects and sections that the current faculty teaches
         Faculty only - used to populate upload form
@@ -261,7 +262,7 @@ class StudyMaterialQuery:
     
     @strawberry.field
     @require_auth
-    def available_materials_for_student(self, info) -> List[StudyMaterialType]:
+    def available_materials_for_student(self, info: Info) -> List[StudyMaterialType]:
         """
         Get all available study materials for the current student
         Student only
@@ -274,3 +275,4 @@ class StudyMaterialQuery:
         materials = get_student_materials(user)
         
         return list(materials)
+

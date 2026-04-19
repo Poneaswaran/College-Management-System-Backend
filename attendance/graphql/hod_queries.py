@@ -235,11 +235,11 @@ class HODAttendanceQuery:
             section_good = len([s for s in section_students if s.risk_level == AttendanceRiskLevel.GOOD])
             section_total_classes = sum(s.total_classes for s in section_students) // len(section_students) if section_students else 0
             
-            # Subject breakdown for this section
-            from timetable.models import Subject, TimetableEntry
+            # Subject breakdown for this section (regular + combined)
+            from timetable.models import Subject, TimetableEntry, CombinedClassSession
             subjects = Subject.objects.filter(
-                timetable_entries__section=section,
-                timetable_entries__is_active=True
+                Q(timetable_entries__section=section, timetable_entries__is_active=True)
+                | Q(combined_class_sessions__sections=section, combined_class_sessions__is_active=True)
             ).distinct()
             
             subject_breakdown = []
@@ -250,8 +250,17 @@ class HODAttendanceQuery:
                     subject=subj,
                     is_active=True
                 ).select_related('faculty').first()
-                
-                faculty_name = (getattr(getattr(timetable_entry.faculty, 'faculty_profile', None), 'full_name', None) or timetable_entry.faculty.email or 'Unknown') if timetable_entry and timetable_entry.faculty else "Unknown"
+
+                combined = None
+                if not timetable_entry:
+                    combined = CombinedClassSession.objects.filter(
+                        subject=subj,
+                        sections=section,
+                        is_active=True
+                    ).select_related('faculty').first()
+
+                faculty_obj = timetable_entry.faculty if timetable_entry and timetable_entry.faculty else (combined.faculty if combined and combined.faculty else None)
+                faculty_name = (getattr(getattr(faculty_obj, 'faculty_profile', None), 'full_name', None) or faculty_obj.email or 'Unknown') if faculty_obj else "Unknown"
                 
                 # Calculate subject stats
                 subject_reports = reports_qs.filter(
@@ -362,11 +371,12 @@ class HODAttendanceQuery:
         
         # Calculate total classes conducted
         total_classes_conducted = AttendanceSession.objects.filter(
-            timetable_entry__section__course__department=department,
+            Q(timetable_entry__section__course__department=department)
+            | Q(combined_session__sections__course__department=department),
             date__gte=date_from_obj,
             date__lte=date_to_obj,
             status='CLOSED'
-        ).count()
+        ).distinct().count()
         
         # Build summary stats
         summary_stats = AttendanceReportSummaryStats(
@@ -461,14 +471,23 @@ class HODAttendanceQuery:
         subject_summaries = []
         for report in reports:
             # Get faculty teaching this subject
-            from timetable.models import TimetableEntry
+            from timetable.models import TimetableEntry, CombinedClassSession
             timetable_entry = TimetableEntry.objects.filter(
                 subject=report.subject,
                 section=student.section,
                 is_active=True
             ).select_related('faculty').first()
-            
-            faculty_name = (getattr(getattr(timetable_entry.faculty, 'faculty_profile', None), 'full_name', None) or timetable_entry.faculty.email or 'Unknown') if timetable_entry and timetable_entry.faculty else "Unknown"
+
+            combined = None
+            if not timetable_entry:
+                combined = CombinedClassSession.objects.filter(
+                    subject=report.subject,
+                    sections=student.section,
+                    is_active=True
+                ).select_related('faculty').first()
+
+            faculty_obj = timetable_entry.faculty if timetable_entry and timetable_entry.faculty else (combined.faculty if combined and combined.faculty else None)
+            faculty_name = (getattr(getattr(faculty_obj, 'faculty_profile', None), 'full_name', None) or faculty_obj.email or 'Unknown') if faculty_obj else "Unknown"
             
             attended = report.present_count + report.late_count
             percentage = float(report.attendance_percentage)
@@ -494,13 +513,19 @@ class HODAttendanceQuery:
         ).select_related(
             'session__timetable_entry__subject',
             'session__timetable_entry__period_definition',
+            'session__combined_session__subject',
+            'session__combined_session__period_definition',
             'marked_by'
-        ).order_by('-session__date', 'session__timetable_entry__period_definition__period_number')[:200]
+        ).order_by(
+            '-session__date',
+            'session__timetable_entry__period_definition__period_number',
+            'session__combined_session__period_definition__period_number'
+        )[:200]
         
         period_records = []
         for att in attendances:
-            period_def = att.session.timetable_entry.period_definition
-            subject = att.session.timetable_entry.subject
+            period_def = att.session.period_definition
+            subject = att.session.subject
             
             # Get marked by
             if att.is_manually_marked and att.marked_by:
@@ -647,15 +672,15 @@ class HODAttendanceQuery:
                 last_absent_date=last_absent.session.date.isoformat() if last_absent else None
             ))
         
-        # Get subject breakdown
-        from timetable.models import Subject, TimetableEntry
+        # Get subject breakdown (regular + combined)
+        from timetable.models import Subject, TimetableEntry, CombinedClassSession
         
         if subject_id:
             subjects = Subject.objects.filter(id=subject_id)
         else:
             subjects = Subject.objects.filter(
-                timetable_entries__section=section,
-                timetable_entries__is_active=True
+                Q(timetable_entries__section=section, timetable_entries__is_active=True)
+                | Q(combined_class_sessions__sections=section, combined_class_sessions__is_active=True)
             ).distinct()
         
         subject_breakdown = []
@@ -666,8 +691,17 @@ class HODAttendanceQuery:
                 subject=subj,
                 is_active=True
             ).select_related('faculty').first()
-            
-            faculty_name = (getattr(getattr(timetable_entry.faculty, 'faculty_profile', None), 'full_name', None) or timetable_entry.faculty.email or 'Unknown') if timetable_entry and timetable_entry.faculty else "Unknown"
+
+            combined = None
+            if not timetable_entry:
+                combined = CombinedClassSession.objects.filter(
+                    subject=subj,
+                    sections=section,
+                    is_active=True
+                ).select_related('faculty').first()
+
+            faculty_obj = timetable_entry.faculty if timetable_entry and timetable_entry.faculty else (combined.faculty if combined and combined.faculty else None)
+            faculty_name = (getattr(getattr(faculty_obj, 'faculty_profile', None), 'full_name', None) or faculty_obj.email or 'Unknown') if faculty_obj else "Unknown"
             
             # Get stats
             subject_reports = AttendanceReport.objects.filter(

@@ -479,3 +479,68 @@ class RoomMaintenanceBlockAdmin(admin.ModelAdmin):
                 "No active maintenance blocks selected.",
                 messages.WARNING,
             )
+
+# ==================================================
+# COMBINED CLASS SESSION
+# ==================================================
+
+@admin.register(CombinedClassSession)
+class CombinedClassSessionAdmin(admin.ModelAdmin):
+    """Admin interface for CombinedClassSession (needed for AttendanceSession autocomplete)."""
+
+    list_display = [
+        "id",
+        "semester",
+        "period_definition",
+        "subject",
+        "faculty",
+        "room",
+        "is_active",
+        "created_at",
+    ]
+    list_filter = [
+        "is_active",
+        "semester",
+        "subject",
+        "period_definition__day_of_week",
+    ]
+    search_fields = [
+        "subject__code",
+        "subject__name",
+        "room__room_number",
+        "faculty__email",
+        "faculty__first_name",
+        "faculty__last_name",
+        "notes",
+    ]
+    autocomplete_fields = [
+        "semester",
+        "period_definition",
+        "subject",
+        "faculty",
+        "room",
+        "created_by",
+    ]
+    readonly_fields = [
+        "created_at",
+        "updated_at",
+    ]
+
+
+@admin.register(CombinedClassSessionSection)
+class CombinedClassSessionSectionAdmin(admin.ModelAdmin):
+    list_display = [
+        "id",
+        "combined_session",
+        "section",
+    ]
+    search_fields = [
+        "combined_session__subject__code",
+        "combined_session__subject__name",
+        "section__name",
+        "section__code",
+    ]
+    autocomplete_fields = [
+        "combined_session",
+        "section",
+    ]

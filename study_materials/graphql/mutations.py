@@ -2,6 +2,7 @@
 GraphQL Mutations for Study Materials System
 """
 import strawberry
+from strawberry.types import Info
 from typing import Optional
 from django.conf import settings
 from django.utils import timezone
@@ -36,7 +37,7 @@ class StudyMaterialMutation:
     @require_auth
     def upload_study_material(
         self,
-        info,
+        info: Info,
         input: UploadStudyMaterialInput
     ) -> UploadMaterialResponse:
         """
@@ -148,7 +149,7 @@ class StudyMaterialMutation:
     @require_auth
     def update_study_material(
         self,
-        info,
+        info: Info,
         input: UpdateStudyMaterialInput
     ) -> UpdateMaterialResponse:
         """
@@ -238,7 +239,7 @@ class StudyMaterialMutation:
     @require_auth
     def delete_study_material(
         self,
-        info,
+        info: Info,
         material_id: strawberry.ID
     ) -> DeleteMaterialResponse:
         """
@@ -281,7 +282,7 @@ class StudyMaterialMutation:
     @require_auth
     def record_material_download(
         self,
-        info,
+        info: Info,
         input: RecordDownloadInput
     ) -> RecordDownloadResponse:
         """
@@ -337,7 +338,7 @@ class StudyMaterialMutation:
     @require_auth
     def record_material_view(
         self,
-        info,
+        info: Info,
         input: RecordViewInput
     ) -> RecordDownloadResponse:  # Reusing same response type
         """
@@ -390,7 +391,7 @@ class StudyMaterialMutation:
     @require_auth
     def ask_ai_tutor(
         self,
-        info,
+        info: Info,
         material_id: strawberry.ID,
         message: str,
     ) -> AIChatResponseType:

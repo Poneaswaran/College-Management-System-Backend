@@ -59,41 +59,69 @@ class AttendanceMutation:
         if user.role.code != 'FACULTY':
             raise Exception("Only faculty can open attendance sessions")
         
-        # Get timetable entry
-        from timetable.models import TimetableEntry
-        try:
-            timetable_entry = TimetableEntry.objects.get(id=input.timetable_entry_id)
-        except TimetableEntry.DoesNotExist:
-            raise Exception("Timetable entry not found")
-        
-        # Validate
-        is_valid, error_message = AttendanceValidator.validate_session_opening(
-            timetable_entry,
-            input.date,
-            user
-        )
-        
-        if not is_valid:
-            raise Exception(error_message)
-        
-        # Create or get session
-        session, created = AttendanceSession.objects.get_or_create(
-            timetable_entry=timetable_entry,
-            date=input.date,
-            defaults={
-                'status': 'ACTIVE',
-                'opened_by': user,
-                'opened_at': timezone.now(),
-                'attendance_window_minutes': input.attendance_window_minutes or 10
-            }
-        )
+        # Determine class reference (exactly one)
+        if bool(input.timetable_entry_id) == bool(input.combined_session_id):
+            raise Exception("Provide exactly one of timetable_entry_id or combined_session_id")
+
+        now = timezone.now()
+
+        if input.timetable_entry_id:
+            from timetable.models import TimetableEntry
+            try:
+                timetable_entry = TimetableEntry.objects.get(id=input.timetable_entry_id)
+            except TimetableEntry.DoesNotExist:
+                raise Exception("Timetable entry not found")
+
+            is_valid, error_message = AttendanceValidator.validate_session_opening(
+                timetable_entry,
+                input.date,
+                user
+            )
+            if not is_valid:
+                raise Exception(error_message)
+
+            session, created = AttendanceSession.objects.get_or_create(
+                timetable_entry=timetable_entry,
+                date=input.date,
+                defaults={
+                    'status': 'ACTIVE',
+                    'opened_by': user,
+                    'opened_at': now,
+                    'attendance_window_minutes': input.attendance_window_minutes or 10
+                }
+            )
+        else:
+            from timetable.models import CombinedClassSession
+            try:
+                combined_session = CombinedClassSession.objects.get(id=input.combined_session_id)
+            except CombinedClassSession.DoesNotExist:
+                raise Exception("Combined session not found")
+
+            is_valid, error_message = AttendanceValidator.validate_combined_session_opening(
+                combined_session,
+                input.date,
+                user
+            )
+            if not is_valid:
+                raise Exception(error_message)
+
+            session, created = AttendanceSession.objects.get_or_create(
+                combined_session=combined_session,
+                date=input.date,
+                defaults={
+                    'status': 'ACTIVE',
+                    'opened_by': user,
+                    'opened_at': now,
+                    'attendance_window_minutes': input.attendance_window_minutes or 10
+                }
+            )
         
         # If session exists but not active, activate it
         if not created:
             if session.status == 'SCHEDULED':
                 session.status = 'ACTIVE'
                 session.opened_by = user
-                session.opened_at = timezone.now()
+                session.opened_at = now
                 session.attendance_window_minutes = input.attendance_window_minutes or session.attendance_window_minutes
                 session.save()
             elif session.status in ['BLOCKED', 'CANCELLED']:
@@ -125,7 +153,11 @@ class AttendanceMutation:
         # Get session
         try:
             session = AttendanceSession.objects.select_related(
-                'timetable_entry__section'
+                'timetable_entry__section',
+                'timetable_entry__subject',
+                'timetable_entry__semester',
+                'combined_session__subject',
+                'combined_session__semester'
             ).get(id=int(input.session_id))
         except AttendanceSession.DoesNotExist:
             raise Exception("Attendance session not found")
@@ -169,8 +201,8 @@ class AttendanceMutation:
         # Update attendance report
         AttendanceReport.update_for_student_subject(
             student=student,
-            subject=session.timetable_entry.subject,
-            semester=session.timetable_entry.semester
+            subject=session.subject,
+            semester=session.semester
         )
         
         return MarkAttendanceResponse(
@@ -199,13 +231,18 @@ class AttendanceMutation:
         # Get session
         try:
             session = AttendanceSession.objects.select_related(
-                'timetable_entry__faculty'
+                'timetable_entry__faculty',
+                'combined_session__faculty',
+                'timetable_entry__subject',
+                'timetable_entry__semester',
+                'combined_session__subject',
+                'combined_session__semester'
             ).get(id=session_id)
         except AttendanceSession.DoesNotExist:
             raise Exception("Attendance session not found")
         
         # Check if faculty owns this session
-        if session.timetable_entry.faculty.id != user.id:
+        if not session.faculty or session.faculty.id != user.id:
             raise Exception("You can only close your own sessions")
         
         # Check if session is active
@@ -224,8 +261,8 @@ class AttendanceMutation:
         for attendance in session.student_attendances.all():
             AttendanceReport.update_for_student_subject(
                 student=attendance.student,
-                subject=session.timetable_entry.subject,
-                semester=session.timetable_entry.semester
+                subject=session.subject,
+                semester=session.semester
             )
         
         return session
@@ -246,7 +283,8 @@ class AttendanceMutation:
         # Get session
         try:
             session = AttendanceSession.objects.select_related(
-                'timetable_entry__faculty'
+                'timetable_entry__faculty',
+                'combined_session__faculty'
             ).get(id=input.session_id)
         except AttendanceSession.DoesNotExist:
             raise Exception("Attendance session not found")
@@ -285,7 +323,8 @@ class AttendanceMutation:
         # Get session
         try:
             session = AttendanceSession.objects.select_related(
-                'timetable_entry__faculty'
+                'timetable_entry__faculty',
+                'combined_session__faculty'
             ).get(id=session_id)
         except AttendanceSession.DoesNotExist:
             raise Exception("Attendance session not found")
@@ -298,7 +337,7 @@ class AttendanceMutation:
         can_reopen = False
         if user.role.code in ['ADMIN', 'HOD']:
             can_reopen = True
-        elif user.role.code == 'FACULTY' and session.timetable_entry.faculty.id == user.id:
+        elif user.role.code == 'FACULTY' and session.faculty and session.faculty.id == user.id:
             can_reopen = True
         
         if not can_reopen:
@@ -329,7 +368,12 @@ class AttendanceMutation:
         # Get session and student
         try:
             session = AttendanceSession.objects.select_related(
-                'timetable_entry__faculty'
+                'timetable_entry__faculty',
+                'combined_session__faculty',
+                'timetable_entry__subject',
+                'timetable_entry__semester',
+                'combined_session__subject',
+                'combined_session__semester'
             ).get(id=input.session_id)
         except AttendanceSession.DoesNotExist:
             raise Exception("Attendance session not found")
@@ -370,8 +414,8 @@ class AttendanceMutation:
         # Update attendance report
         AttendanceReport.update_for_student_subject(
             student=student,
-            subject=session.timetable_entry.subject,
-            semester=session.timetable_entry.semester
+            subject=session.subject,
+            semester=session.semester
         )
         
         return attendance
@@ -394,14 +438,19 @@ class AttendanceMutation:
         try:
             session = AttendanceSession.objects.select_related(
                 'timetable_entry__faculty',
-                'timetable_entry__section'
+                'timetable_entry__section',
+                'combined_session__faculty',
+                'timetable_entry__subject',
+                'timetable_entry__semester',
+                'combined_session__subject',
+                'combined_session__semester'
             ).get(id=session_id)
         except AttendanceSession.DoesNotExist:
             raise Exception("Attendance session not found")
         
         # Check permissions
         if user.role.code not in ['ADMIN', 'HOD']:
-            if user.role.code != 'FACULTY' or session.timetable_entry.faculty.id != user.id:
+            if user.role.code != 'FACULTY' or not session.faculty or session.faculty.id != user.id:
                 raise Exception("You don't have permission to mark attendance for this session")
         
         from profile_management.models import StudentProfile
@@ -411,8 +460,13 @@ class AttendanceMutation:
             try:
                 student = StudentProfile.objects.get(id=student_id)
                 
-                # Verify student is in section
-                if not session.timetable_entry.section.student_profiles.filter(id=student_id).exists():
+                # Verify student is in class sections
+                allowed = False
+                for section in session.sections:
+                    if section.student_profiles.filter(id=student_id).exists():
+                        allowed = True
+                        break
+                if not allowed:
                     continue
                 
                 # Create/update attendance
@@ -432,8 +486,8 @@ class AttendanceMutation:
                 # Update report
                 AttendanceReport.update_for_student_subject(
                     student=student,
-                    subject=session.timetable_entry.subject,
-                    semester=session.timetable_entry.semester
+                    subject=session.subject,
+                    semester=session.semester
                 )
             except StudentProfile.DoesNotExist:
                 continue

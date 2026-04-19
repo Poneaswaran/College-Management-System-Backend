@@ -120,16 +120,17 @@ class AttendanceSessionAdmin(admin.ModelAdmin):
     
     autocomplete_fields = [
         'timetable_entry',
+        'combined_session',
         'opened_by',
         'blocked_by',
     ]
-    
     inlines = [StudentAttendanceInline]
     
     fieldsets = (
         ('Session Information', {
             'fields': (
                 'timetable_entry',
+                'combined_session',
                 'date',
                 'status',
                 'attendance_window_minutes',
@@ -169,25 +170,30 @@ class AttendanceSessionAdmin(admin.ModelAdmin):
             'timetable_entry__section',
             'timetable_entry__faculty',
             'timetable_entry__semester',
+            'combined_session__subject',
+            'combined_session__faculty',
+            'combined_session__semester',
+            'combined_session__period_definition',
             'opened_by',
             'blocked_by'
-        )
+        ).prefetch_related('combined_session__sections')
     
     def get_subject(self, obj):
         """Get subject name"""
-        return obj.timetable_entry.subject.name
+        return obj.subject_name
     get_subject.short_description = 'Subject'
     get_subject.admin_order_field = 'timetable_entry__subject__name'
     
     def get_section(self, obj):
         """Get section name"""
-        return obj.timetable_entry.section.name
+        return obj.sections_name
     get_section.short_description = 'Section'
     get_section.admin_order_field = 'timetable_entry__section__name'
     
     def get_faculty(self, obj):
         """Get faculty name"""
-        return obj.timetable_entry.faculty.email or obj.timetable_entry.faculty.register_number
+        faculty = obj.faculty
+        return (faculty.email or faculty.register_number) if faculty else "Unknown"
     get_faculty.short_description = 'Faculty'
     get_faculty.admin_order_field = 'timetable_entry__faculty__email'
     
@@ -322,13 +328,15 @@ class AttendanceSessionAdmin(admin.ModelAdmin):
             'blocked_by'
         ).order_by(
             'timetable_entry__faculty__email',
-            'timetable_entry__period_definition__start_time'
+            'combined_session__faculty__email',
+            'timetable_entry__period_definition__start_time',
+            'combined_session__period_definition__start_time',
         )
         
         # Group sessions by faculty
         from itertools import groupby
         sessions_by_faculty = {}
-        for faculty_email, group in groupby(sessions, key=lambda s: s.timetable_entry.faculty):
+        for faculty_email, group in groupby(sessions, key=lambda s: s.faculty):
             session_list = list(group)
             faculty_stats = {
                 'faculty': faculty_email,
@@ -339,7 +347,7 @@ class AttendanceSessionAdmin(admin.ModelAdmin):
                 'scheduled': sum(1 for s in session_list if s.status == 'SCHEDULED'),
                 'blocked': sum(1 for s in session_list if s.status in ['BLOCKED', 'CANCELLED']),
             }
-            sessions_by_faculty[faculty_email.email or faculty_email.register_number] = faculty_stats
+            sessions_by_faculty[(faculty_email.email or faculty_email.register_number) if faculty_email else "Unknown"] = faculty_stats
         
         context = {
             **self.admin_site.each_context(request),
@@ -458,7 +466,7 @@ class StudentAttendanceAdmin(admin.ModelAdmin):
     
     def get_subject(self, obj):
         """Get subject name"""
-        return obj.session.timetable_entry.subject.name
+        return obj.session.subject_name
     get_subject.short_description = 'Subject'
     get_subject.admin_order_field = 'session__timetable_entry__subject__name'
     

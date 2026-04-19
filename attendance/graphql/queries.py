@@ -6,6 +6,7 @@ from typing import List, Optional
 from datetime import date
 from strawberry.types import Info
 from django.utils import timezone
+from django.db.models import Q
 
 from attendance.models import (
     AttendanceSession, StudentAttendance, AttendanceReport, FacultyAttendance
@@ -43,18 +44,26 @@ class AttendanceQuery:
         student = user.student_profile
         today = timezone.now().date()
         
-        # Get active sessions for student's section
         sessions = AttendanceSession.objects.filter(
-            timetable_entry__section=student.section,
+            Q(timetable_entry__section=student.section) | Q(combined_session__sections=student.section),
             date=today,
             status='ACTIVE'
-        ).select_related(
+        ).distinct().select_related(
             'timetable_entry__subject',
             'timetable_entry__faculty',
             'timetable_entry__period_definition',
             'timetable_entry__section',
-            'timetable_entry__semester'
-        ).order_by('timetable_entry__period_definition__start_time')
+            'timetable_entry__semester',
+            'combined_session__subject',
+            'combined_session__faculty',
+            'combined_session__period_definition',
+            'combined_session__semester'
+        ).prefetch_related(
+            'combined_session__sections'
+        ).order_by(
+            'timetable_entry__period_definition__start_time',
+            'combined_session__period_definition__start_time'
+        )
         
         return list(sessions)
     
@@ -73,9 +82,14 @@ class AttendanceQuery:
         today = timezone.now().date()
         day_of_week = today.isoweekday()
         
-        # Get faculty's timetable entries for today
-        from timetable.models import TimetableEntry
+        from timetable.models import TimetableEntry, CombinedClassSession
         timetable_entries = TimetableEntry.objects.filter(
+            faculty=user,
+            is_active=True,
+            period_definition__day_of_week=day_of_week
+        ).values_list('id', flat=True)
+
+        combined_sessions = CombinedClassSession.objects.filter(
             faculty=user,
             is_active=True,
             period_definition__day_of_week=day_of_week
@@ -83,16 +97,25 @@ class AttendanceQuery:
         
         # Get or list sessions
         sessions = AttendanceSession.objects.filter(
-            timetable_entry__id__in=timetable_entries,
             date=today
+        ).filter(
+            Q(timetable_entry__id__in=timetable_entries) | Q(combined_session__id__in=combined_sessions)
         ).select_related(
             'timetable_entry__subject',
             'timetable_entry__section',
             'timetable_entry__period_definition',
             'timetable_entry__semester',
+            'combined_session__subject',
+            'combined_session__period_definition',
+            'combined_session__semester',
             'opened_by',
             'blocked_by'
-        ).order_by('timetable_entry__period_definition__start_time')
+        ).prefetch_related(
+            'combined_session__sections'
+        ).order_by(
+            'timetable_entry__period_definition__start_time',
+            'combined_session__period_definition__start_time'
+        )
         
         return list(sessions)
     
@@ -111,7 +134,11 @@ class AttendanceQuery:
                 'timetable_entry__section',
                 'timetable_entry__faculty__user',
                 'timetable_entry__period_definition',
-                'timetable_entry__semester'
+                'timetable_entry__semester',
+                'combined_session__subject',
+                'combined_session__faculty__user',
+                'combined_session__period_definition',
+                'combined_session__semester'
             ).get(id=session_id)
         except AttendanceSession.DoesNotExist:
             return None
@@ -121,12 +148,16 @@ class AttendanceQuery:
         
         # Student access
         if hasattr(user, 'student_profile'):
-            if session.timetable_entry.section.student_profiles.filter(id=user.student_profile.id).exists():
+            student_section = user.student_profile.section
+            if student_section and (
+                (session.timetable_entry_id and session.timetable_entry.section_id == student_section.id)
+                or (session.combined_session_id and session.combined_session.sections.filter(id=student_section.id).exists())
+            ):
                 has_access = True
         
         # Faculty access
         if user.role.code == 'FACULTY':
-            if session.timetable_entry.faculty.id == user.id:
+            if session.faculty and session.faculty.id == user.id:
                 has_access = True
         
         # Admin access
@@ -163,10 +194,14 @@ class AttendanceQuery:
             
             # Faculty can see students they teach
             if user.role.code == 'FACULTY':
-                from timetable.models import TimetableEntry
+                from timetable.models import TimetableEntry, CombinedClassSession
                 teaches_student = TimetableEntry.objects.filter(
                     faculty=user,
                     section__student_profiles__id=student_id,
+                    is_active=True
+                ).exists() or CombinedClassSession.objects.filter(
+                    faculty=user,
+                    sections__student_profiles__id=student_id,
                     is_active=True
                 ).exists()
                 if not teaches_student and user.role.code not in ['ADMIN', 'HOD']:
@@ -187,7 +222,10 @@ class AttendanceQuery:
         query = StudentAttendance.objects.filter(student=student)
         
         if subject_id:
-            query = query.filter(session__timetable_entry__subject_id=subject_id)
+            query = query.filter(
+                Q(session__timetable_entry__subject_id=subject_id)
+                | Q(session__combined_session__subject_id=subject_id)
+            )
         
         if start_date:
             query = query.filter(session__date__gte=start_date)
@@ -198,6 +236,7 @@ class AttendanceQuery:
         query = query.select_related(
             'session__timetable_entry__subject',
             'session__timetable_entry__section',
+            'session__combined_session__subject',
             'student__user',
             'marked_by'
         ).order_by('-session__date', '-marked_at')
@@ -340,7 +379,7 @@ class AttendanceQuery:
         
         # Check access - only faculty teaching or admin
         if user.role.code not in ['ADMIN', 'HOD']:
-            if user.role.code != 'FACULTY' or session.timetable_entry.faculty.id != user.id:
+            if user.role.code != 'FACULTY' or not session.faculty or session.faculty.id != user.id:
                 return []
         
         attendances = StudentAttendance.objects.filter(
@@ -369,7 +408,8 @@ class AttendanceQuery:
 
         try:
             session = AttendanceSession.objects.select_related(
-                'timetable_entry__faculty'
+                'timetable_entry__faculty',
+                'combined_session__faculty'
             ).get(id=session_id)
         except AttendanceSession.DoesNotExist:
             return None
@@ -381,7 +421,7 @@ class AttendanceQuery:
         )
         is_faculty = (
             user.role.code == 'FACULTY' and
-            session.timetable_entry.faculty_id == user.id
+            session.faculty and session.faculty.id == user.id
         )
         is_admin = user.role.code in ['ADMIN', 'HOD']
 
@@ -393,6 +433,7 @@ class AttendanceQuery:
                 'student__user',
                 'session__timetable_entry__subject',
                 'session__timetable_entry__section',
+                'session__combined_session__subject',
                 'marked_by'
             ).get(session_id=session_id, student_id=student_id)
         except StudentAttendance.DoesNotExist:
@@ -415,7 +456,7 @@ class AttendanceQuery:
         """
         user = info.context.request.user
         
-        from timetable.models import Subject, TimetableEntry
+        from timetable.models import Subject, TimetableEntry, CombinedClassSession
         
         try:
             subject = Subject.objects.get(id=subject_id)
@@ -433,7 +474,14 @@ class AttendanceQuery:
                 subject=subject,
                 is_active=True
             ).exists()
-            
+
+            if not teaches_subject:
+                teaches_subject = CombinedClassSession.objects.filter(
+                    faculty=user,
+                    subject=subject,
+                    is_active=True
+                ).exists()
+
             if not teaches_subject:
                 return []
         

@@ -2,6 +2,7 @@
 GraphQL Queries for Assignment System
 """
 import strawberry
+from strawberry.types import Info
 from typing import List, Optional
 from django.db.models import Q
 
@@ -27,7 +28,7 @@ class AssignmentQuery:
     """Assignment-related queries"""
     
     @strawberry.field
-    def assignment(self, info, id: int) -> Optional[AssignmentType]:
+    def assignment(self, info: Info, id: int) -> Optional[AssignmentType]:
         """
         Get a single assignment by ID
         """
@@ -58,7 +59,7 @@ class AssignmentQuery:
     @strawberry.field
     def assignments(
         self,
-        info,
+        info: Info,
         section_id: Optional[int] = None,
         subject_id: Optional[int] = None,
         semester_id: Optional[int] = None,
@@ -109,7 +110,7 @@ class AssignmentQuery:
         return list(assignments.select_related('subject', 'section', 'semester', 'created_by'))
     
     @strawberry.field
-    def my_assignments(self, info) -> List[AssignmentType]:
+    def my_assignments(self, info: Info) -> List[AssignmentType]:
         """
         Get assignments for current user (student or faculty)
         """
@@ -131,7 +132,7 @@ class AssignmentQuery:
         return []
     
     @strawberry.field
-    def pending_assignments(self, info) -> List[AssignmentType]:
+    def pending_assignments(self, info: Info) -> List[AssignmentType]:
         """
         Get pending assignments for current student
         """
@@ -149,7 +150,7 @@ class AssignmentQuery:
             return []
     
     @strawberry.field
-    def overdue_assignments(self, info) -> List[AssignmentType]:
+    def overdue_assignments(self, info: Info) -> List[AssignmentType]:
         """
         Get overdue assignments for current student
         """
@@ -169,7 +170,7 @@ class AssignmentQuery:
     @strawberry.field
     def assignment_submissions(
         self,
-        info,
+        info: Info,
         assignment_id: int
     ) -> List[AssignmentSubmissionType]:
         """
@@ -208,7 +209,7 @@ class AssignmentQuery:
         return list(submissions)
     
     @strawberry.field
-    def my_submissions(self, info) -> List[AssignmentSubmissionType]:
+    def my_submissions(self, info: Info) -> List[AssignmentSubmissionType]:
         """
         Get all submissions for current student
         """
@@ -229,7 +230,7 @@ class AssignmentQuery:
             return []
     
     @strawberry.field
-    def submission(self, info, id: int) -> Optional[AssignmentSubmissionType]:
+    def submission(self, info: Info, id: int) -> Optional[AssignmentSubmissionType]:
         """
         Get a single submission by ID
         """
@@ -264,7 +265,7 @@ class AssignmentQuery:
     @strawberry.field
     def student_assignment_statistics(
         self,
-        info,
+        info: Info,
         student_id: Optional[int] = None,
         semester_id: Optional[int] = None
     ) -> StudentAssignmentStatisticsType:
@@ -320,7 +321,7 @@ class AssignmentQuery:
         )
     
     @strawberry.field
-    def pending_grading(self, info) -> List[AssignmentSubmissionType]:
+    def pending_grading(self, info: Info) -> List[AssignmentSubmissionType]:
         """
         Get submissions pending grading for current faculty
         """
@@ -339,3 +340,5 @@ class AssignmentQuery:
         ).select_related('student__user', 'assignment').order_by('submitted_at')
         
         return list(submissions)
+
+

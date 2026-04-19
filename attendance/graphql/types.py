@@ -10,7 +10,7 @@ from decimal import Decimal
 from attendance.models import (
     AttendanceSession, StudentAttendance, AttendanceReport, FacultyAttendance
 )
-from timetable.graphql.types import TimetableEntryType, SubjectType, SemesterType
+from timetable.graphql.types import TimetableEntryType, CombinedClassSessionType, SubjectType, SemesterType
 from core.graphql.types import UserType
 from profile_management.graphql.types import StudentProfileType
 
@@ -81,8 +81,12 @@ class AttendanceSessionType:
     
     # Relationships
     @strawberry_django.field
-    def timetable_entry(self) -> 'TimetableEntryType':
+    def timetable_entry(self) -> Optional['TimetableEntryType']:
         return self.timetable_entry
+
+    @strawberry_django.field
+    def combined_session(self) -> Optional['CombinedClassSessionType']:
+        return self.combined_session
     
     @strawberry_django.field
     def opened_by(self) -> Optional['UserType']:
@@ -100,28 +104,29 @@ class AttendanceSessionType:
     @strawberry.field
     def subject_name(self) -> str:
         """Get subject name"""
-        return self.timetable_entry.subject.name
+        return self.subject_name
     
     @strawberry.field
     def section_name(self) -> str:
-        """Get section name"""
-        return self.timetable_entry.section.name
+        """Get section(s) name"""
+        return self.sections_name
     
     @strawberry.field
     def faculty_name(self) -> str:
         """Get faculty name"""
-        return self.timetable_entry.faculty.email or self.timetable_entry.faculty.register_number or "Unknown"
+        faculty = self.faculty
+        return faculty.email or faculty.register_number or "Unknown"
     
     @strawberry.field
     def period_info(self) -> str:
         """Get period information"""
-        pd = self.timetable_entry.period_definition
+        pd = self.period_definition
         return f"Period {pd.period_number} ({pd.start_time.strftime('%H:%M')} - {pd.end_time.strftime('%H:%M')})"
     
     @strawberry.field
     def period_time(self) -> str:
         """Get period time (alias for period_info)"""
-        pd = self.timetable_entry.period_definition
+        pd = self.period_definition
         return f"Period {pd.period_number} ({pd.start_time.strftime('%H:%M')} - {pd.end_time.strftime('%H:%M')})"
     
     @strawberry.field
@@ -186,7 +191,7 @@ class StudentAttendanceType:
     @strawberry.field
     def subject_name(self) -> str:
         """Get subject name"""
-        return self.session.timetable_entry.subject.name
+        return self.session.subject_name
     
     @strawberry.field
     def date(self) -> date:
@@ -311,7 +316,8 @@ class MarkAttendanceInput:
 @strawberry.input
 class OpenSessionInput:
     """Input for opening attendance session"""
-    timetable_entry_id: int
+    timetable_entry_id: Optional[int] = None
+    combined_session_id: Optional[int] = None
     date: date
     attendance_window_minutes: Optional[int] = 10
 
