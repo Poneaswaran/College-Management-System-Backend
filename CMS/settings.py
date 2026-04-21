@@ -69,16 +69,17 @@ SHARED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "core",  # Core must be here so Admin can find the User model
     "corsheaders",
-    "rest_framework",
-    "strawberry.django",
 ]
 
 # Apps that live in each TENANT's private schema (data-isolated)
 TENANT_APPS = [
-    "django.contrib.auth",
     "django.contrib.contenttypes",
+    "django.contrib.auth",
     "django.contrib.admin",
+    "django.contrib.sessions",
+    "django.contrib.messages",
     "core",
     "profile_management",
     "timetable",
@@ -91,6 +92,8 @@ TENANT_APPS = [
     "study_materials",
     "onboarding",
     "campus_management",
+    "rest_framework",
+    "strawberry.django",
 ]
 
 # Combine: INSTALLED_APPS = SHARED_APPS + (TENANT_APPS not already in SHARED_APPS)
@@ -237,9 +240,17 @@ CORS_ALLOWED_ORIGINS = [
     "http://192.168.1.6:3000",
 ]
 
+# Allow any subdomain of localhost on common frontend ports (3000, 5173, 5174)
+CORS_ALLOWED_ORIGIN_REGEXES = [
+    r"^http://.*\.localhost:3000$",
+    r"^http://.*\.localhost:5173$",
+    r"^http://.*\.localhost:5174$",
+]
+
 CSRF_TRUSTED_ORIGINS = [
     "https://college-management-system-backend-64g7.onrender.com",
     "http://localhost:3000",
+    "http://*.localhost:3000", # Support subdomains for CSRF as well
     "http://192.168.3.47:3000",
 ]
 
