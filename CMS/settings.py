@@ -258,6 +258,14 @@ CSRF_TRUSTED_ORIGINS = [
 # CORS_ALLOW_CREDENTIALS = True  
 APPEND_SLASH = False
 
+# Caching Configuration
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "feature-flags",
+    }
+}
+
 # Redis Configuration (for real-time notifications)
 REDIS_URL = 'redis://localhost:6379/0'
 

@@ -11,11 +11,39 @@ class ConfigurationAdmin(admin.ModelAdmin):
     list_filter = ["sub_app", "is_active"]
 
 
+from django.core.cache import cache
+from configuration.models import FeatureFlag, TenantFeatureOverride
+from configuration.services.feature_flag_service import KNOWN_FLAGS
+
+class TenantFeatureOverrideInline(admin.TabularInline):
+    model = TenantFeatureOverride
+    extra = 1
+    fields = ("schema_name", "is_enabled", "updated_at")
+    readonly_fields = ("updated_at",)
+
 @admin.register(FeatureFlag)
 class FeatureFlagAdmin(admin.ModelAdmin):
-    list_display = ["tenant_key", "sub_app", "key", "is_enabled", "is_active", "updated_at"]
-    search_fields = ["tenant_key", "sub_app", "key", "description"]
-    list_filter = ["sub_app", "is_enabled", "is_active"]
+    list_display = ("key", "is_enabled_globally", "updated_at")
+    list_editable = ("is_enabled_globally",)
+    inlines = [TenantFeatureOverrideInline]
+    readonly_fields = ("created_at", "updated_at")
+
+    def save_model(self, request, obj, form, change):
+        super().save_model(request, obj, form, change)
+        # Invalidate cache for all tenants when global flag changes
+        from tenants.models import Client
+        for tenant in Client.objects.exclude(schema_name="public"):
+            cache.delete(f"ff:{tenant.schema_name}:{obj.key}")
+
+@admin.register(TenantFeatureOverride)
+class TenantFeatureOverrideAdmin(admin.ModelAdmin):
+    list_display = ("schema_name", "flag", "is_enabled", "updated_at")
+    list_filter = ("schema_name", "is_enabled")
+    readonly_fields = ("updated_at",)
+
+    def save_model(self, request, obj, form, change):
+        super().save_model(request, obj, form, change)
+        cache.delete(f"ff:{obj.schema_name}:{obj.flag.key}")
 
 
 @admin.register(TimetableConfiguration)
