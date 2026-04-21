@@ -9,6 +9,8 @@ from .etag_mixin import ETagMixin
 from .serializers import (
     FacultyProfileSerializer,
     FacultyProfileUpdateSerializer,
+    HODFacultyListQuerySerializer,
+    HODFacultyListResponseSerializer,
     ParentOtpRequestSerializer,
     ParentOtpVerifySerializer,
     StudentAdminUpdateSerializer,
@@ -204,6 +206,35 @@ class FacultyStudentsView(ETagMixin, APIView):
         if payload is None:
             return Response({"detail": "No students available"}, status=status.HTTP_404_NOT_FOUND)
         return Response(payload)
+
+
+class HODFacultyListView(ETagMixin, APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        role_code = getattr(getattr(request.user, "role", None), "code", None)
+        if role_code not in {"HOD", "ADMIN"}:
+            return Response({"detail": "Not authorized"}, status=status.HTTP_403_FORBIDDEN)
+
+        query_serializer = HODFacultyListQuerySerializer(data=request.query_params)
+        query_serializer.is_valid(raise_exception=True)
+        validated = query_serializer.validated_data
+
+        payload = FacultyProfileService.hod_faculty_list(
+            user=request.user,
+            search=validated.get("search"),
+            designation=validated.get("designation"),
+            is_active=validated.get("is_active"),
+            page=validated.get("page", 1),
+            page_size=validated.get("page_size", 10),
+        )
+
+        if payload is None:
+            return Response({"detail": "Not authorized"}, status=status.HTTP_403_FORBIDDEN)
+
+        response_serializer = HODFacultyListResponseSerializer(payload)
+        return Response(response_serializer.data)
 
 
 class ParentRequestOtpView(APIView):

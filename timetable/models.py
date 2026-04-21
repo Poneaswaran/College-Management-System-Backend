@@ -128,6 +128,82 @@ class PeriodDefinition(models.Model):
 
 
 # ==================================================
+# HOD TIMETABLE ASSIGNMENT MODELS
+# ==================================================
+
+class Period(models.Model):
+    """Admin-managed period catalog used by HOD timetable assignment."""
+
+    label = models.CharField(max_length=100, unique=True)
+    start_time = models.TimeField()
+    end_time = models.TimeField()
+    order = models.PositiveIntegerField(unique=True)
+    is_break = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ["order", "id"]
+        verbose_name = "Period"
+        verbose_name_plural = "Periods"
+
+    def __str__(self):
+        return f"{self.label} ({self.start_time.strftime('%H:%M')}-{self.end_time.strftime('%H:%M')})"
+
+
+class TimetableSlot(models.Model):
+    """Single timetable cell for a section/day/period used by HOD assignment UI."""
+
+    DAY_CHOICES = [
+        ("Monday", "Monday"),
+        ("Tuesday", "Tuesday"),
+        ("Wednesday", "Wednesday"),
+        ("Thursday", "Thursday"),
+        ("Friday", "Friday"),
+        ("Saturday", "Saturday"),
+    ]
+
+    class_section = models.ForeignKey(
+        Section,
+        on_delete=models.CASCADE,
+        related_name="hod_timetable_slots",
+    )
+    day = models.CharField(max_length=20, choices=DAY_CHOICES)
+    period = models.ForeignKey(
+        "timetable.Period",
+        on_delete=models.CASCADE,
+        related_name="timetable_slots",
+    )
+    subject = models.ForeignKey(
+        "timetable.Subject",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="timetable_slots",
+    )
+    faculty = models.ForeignKey(
+        "profile_management.FacultyProfile",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="timetable_slots",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ("class_section", "day", "period")
+        ordering = ["class_section", "day", "period__order"]
+        indexes = [
+            models.Index(fields=["class_section", "day"]),
+            models.Index(fields=["subject", "faculty"]),
+        ]
+        verbose_name = "Timetable Slot"
+        verbose_name_plural = "Timetable Slots"
+
+    def __str__(self):
+        return f"{self.class_section} - {self.day} - {self.period.label}"
+
+
+# ==================================================
 # ROOM
 # ==================================================
 
