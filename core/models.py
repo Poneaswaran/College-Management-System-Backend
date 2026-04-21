@@ -15,6 +15,15 @@ from django.core.exceptions import ObjectDoesNotExist
 class Department(models.Model):
     name = models.CharField(max_length=100, unique=True)
     code = models.CharField(max_length=20, unique=True)  # CSE, ECE, MECH
+    school_name = models.CharField(
+        max_length=255,
+        blank=True,
+        help_text=(
+            "The school/faculty this department belongs to. "
+            "e.g. 'School of Engineering'. "
+            "If blank, falls back to the institution name."
+        ),
+    )
     is_active = models.BooleanField(default=True)
 
     def __str__(self):

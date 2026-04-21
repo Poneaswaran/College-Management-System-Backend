@@ -51,18 +51,34 @@ DEBUG = True
 ALLOWED_HOSTS = ['*']
 
 
-# Application definition
+# ===========================================================================
+# DJANGO-TENANTS CONFIGURATION
+# ===========================================================================
 
-INSTALLED_APPS = [
-    'django.contrib.admin',
-    'django.contrib.auth',
-    'django.contrib.contenttypes',
-    'django.contrib.sessions',
-    'django.contrib.messages',
-    'django.contrib.staticfiles',
-    'corsheaders',
-    'rest_framework',
+# django-tenants model references
+TENANT_MODEL = "tenants.Client"
+TENANT_DOMAIN_MODEL = "tenants.Domain"
+
+# Apps that live in the PUBLIC schema (shared across all tenants)
+SHARED_APPS = [
+    "django_tenants",
+    "tenants",
+    "django.contrib.admin",
+    "django.contrib.auth",
+    "django.contrib.contenttypes",
+    "django.contrib.sessions",
+    "django.contrib.messages",
+    "django.contrib.staticfiles",
+    "corsheaders",
+    "rest_framework",
     "strawberry.django",
+]
+
+# Apps that live in each TENANT's private schema (data-isolated)
+TENANT_APPS = [
+    "django.contrib.auth",
+    "django.contrib.contenttypes",
+    "django.contrib.admin",
     "core",
     "profile_management",
     "timetable",
@@ -77,6 +93,11 @@ INSTALLED_APPS = [
     "campus_management",
 ]
 
+# Combine: INSTALLED_APPS = SHARED_APPS + (TENANT_APPS not already in SHARED_APPS)
+INSTALLED_APPS = list(SHARED_APPS) + [
+    app for app in TENANT_APPS if app not in SHARED_APPS
+]
+
 try:
     importlib.import_module("django_q")
     from django.utils import baseconv  # noqa: F401
@@ -84,7 +105,29 @@ try:
 except Exception:
     pass
 
+# ===========================================================================
+# DATABASE — django-tenants requires the postgresql_backend engine
+# ===========================================================================
+
+DATABASES = {
+    "default": {
+        "ENGINE": "django_tenants.postgresql_backend",
+        "NAME": os.getenv("DB_NAME", "cms_db"),
+        "USER": os.getenv("DB_USER", "cms_user"),
+        "PASSWORD": os.getenv("DB_PASSWORD", "cms_password"),
+        "HOST": os.getenv("DB_HOST", "localhost"),
+        "PORT": os.getenv("DB_PORT", "5432"),
+    }
+}
+
+DATABASE_ROUTERS = ["django_tenants.routers.TenantSyncRouter"]
+
+# ===========================================================================
+# MIDDLEWARE — TenantMainMiddleware MUST be first
+# ===========================================================================
+
 MIDDLEWARE = [
+    'django_tenants.middleware.main.TenantMainMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
@@ -96,7 +139,14 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
+# ===========================================================================
+# URL CONFIGURATION
+# ===========================================================================
+
 ROOT_URLCONF = 'CMS.urls'
+PUBLIC_SCHEMA_URLCONF = 'CMS.public_urls'
+
+AUTH_USER_MODEL = "core.User"
 
 TEMPLATES = [
     {
@@ -115,18 +165,6 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'CMS.wsgi.application'
 
-
-# Database
-# https://docs.djangoproject.com/en/6.0/ref/settings/#databases
-
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
-    }
-}
-
-AUTH_USER_MODEL = "core.User"
 
 # Password validation
 # https://docs.djangoproject.com/en/6.0/ref/settings/#auth-password-validators
@@ -208,7 +246,6 @@ CSRF_TRUSTED_ORIGINS = [
 # If your frontend needs cookies/auth credentials, enable this:
 # CORS_ALLOW_CREDENTIALS = True  
 APPEND_SLASH = False
-USE_TZ = True
 
 # Redis Configuration (for real-time notifications)
 REDIS_URL = 'redis://localhost:6379/0'

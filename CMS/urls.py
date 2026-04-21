@@ -193,6 +193,7 @@ urlpatterns = [
     path('api/campus-management/', include('campus_management.urls')),
     path('api/timetable/', include('timetable.urls')),
     path('api/core/', include('core.urls')),
+    path('api/tenant/', include('tenants.urls')),
 ]
 
 # Serve media files in development

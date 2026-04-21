@@ -627,9 +627,26 @@ class TimetableExportView(APIView):
         from core.models import Section
 
         try:
-            section = Section.objects.select_related('course').get(pk=section_id)
+            section = Section.objects.select_related('course', 'course__department').get(pk=section_id)
         except Section.DoesNotExist:
             return Response({'error': 'Section not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        # Security/Tenant Isolation Check
+        user = request.user
+        role_code = getattr(getattr(user, 'role', None), 'code', '').upper()
+
+        if role_code == 'HOD':
+            user_dept = getattr(user, 'department', None)
+            if not user_dept or section.course.department_id != user_dept.id:
+                return Response({'error': 'Unauthorized. You can only export timetables for your own department.'}, status=status.HTTP_403_FORBIDDEN)
+        
+        elif role_code == 'STUDENT':
+            student_profile = getattr(user, 'student_profile', None)
+            if not student_profile or student_profile.section_id != section.id:
+                return Response({'error': 'Unauthorized. You can only export your own section\'s timetable.'}, status=status.HTTP_403_FORBIDDEN)
+        
+        # For Admin or Faculty, we might allow or add more checks, 
+        # but for now, we prioritize HOD/Tenant and Student isolation.
 
         try:
             pdf_bytes = TimetableExportService.generate_pdf(
@@ -645,7 +662,12 @@ class TimetableExportView(APIView):
             )
 
         import io
-        filename = f"timetable_{section.name.replace(' ', '_')}.pdf"
+        from django.db import connection as db_connection
+        tenant = db_connection.tenant
+        institution_slug = tenant.short_name.lower().replace(" ", "_")
+        dept_slug = section.course.department.code.lower()
+        section_slug = section.name.replace(' ', '_')
+        filename = f"{institution_slug}_{dept_slug}_timetable_{section_slug}.pdf"
         response = FileResponse(
             io.BytesIO(pdf_bytes),
             content_type='application/pdf',

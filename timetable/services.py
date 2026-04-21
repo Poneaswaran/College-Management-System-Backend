@@ -651,9 +651,8 @@ class RescheduleService:
 
 class TimetableExportService:
     """
-    Generates a PDF version of a section's weekly timetable grid.
-
-    Uses ReportLab only (pure Python PDF generation — no WeasyPrint).
+    Generates a high-fidelity PDF version of a section's weekly timetable grid
+    matching the institution's official format.
     """
 
     DAY_ORDER = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
@@ -661,25 +660,17 @@ class TimetableExportService:
     @staticmethod
     def generate_pdf(section_id: int, semester_id: int) -> bytes:
         """
-        Build the PDF and return the raw bytes.
-
-        Parameters
-        ----------
-        section_id  : Section PK
-        semester_id : Semester PK
-
-        Returns
-        -------
-        bytes — the complete PDF file content
+        Build the high-fidelity PDF and return the raw bytes.
         """
         try:
             from reportlab.lib.pagesizes import A4, landscape
             from reportlab.lib import colors
             from reportlab.platypus import (
-                SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer,
+                SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Frame, PageTemplate,
             )
-            from reportlab.lib.styles import getSampleStyleSheet
+            from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
             from reportlab.lib.units import cm
+            from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
         except ImportError as exc:
             raise ImportError(
                 "ReportLab is required for PDF export. "
@@ -689,113 +680,251 @@ class TimetableExportService:
         import io
         from timetable.utils import get_section_timetable_grid
         from core.models import Section
-        from profile_management.models import Semester
+        from profile_management.models import Semester, SectionIncharge, FacultyProfile
 
-        section  = Section.objects.select_related('course').get(pk=section_id)
-        semester = Semester.objects.get(pk=semester_id)
-        grid     = get_section_timetable_grid(section, semester)
+        section = Section.objects.select_related('course', 'course__department').get(pk=section_id)
+        semester = Semester.objects.select_related('academic_year').get(pk=semester_id)
+        grid = get_section_timetable_grid(section, semester)
+        
+        # -- Fetch Tenant / Institution Info (from django-tenants) ----------
+        from django.db import connection as db_connection
+        tenant = db_connection.tenant  # Client instance for the current request
+        dept = section.course.department
 
-        # Determine which days appear in the grid
-        days_present = [d for d in TimetableExportService.DAY_ORDER if d in grid]
-
-        # Determine max period number across all days
-        max_period = 0
+        university_name = tenant.name.upper()
+        school_name = (dept.school_name or tenant.name).upper()
+        dept_name = f"DEPARTMENT OF {dept.name.upper()}"
+        
+        # ── Fetch Meta Info (In-Charge, Room) ──────────────────────────────
+        in_charge_obj = SectionIncharge.objects.filter(section=section, semester=semester).select_related('faculty').first()
+        in_charge_name = in_charge_obj.faculty.get_full_name() if in_charge_obj else "Not Assigned"
+        
+        # Determine rooms used (show primary room or list if multiple)
+        rooms_used = set()
         for day_data in grid.values():
-            for p_num in day_data.keys():
-                if p_num > max_period:
-                    max_period = p_num
+            for entry in day_data.values():
+                if entry.room:
+                    rooms_used.add(entry.room.room_number)
+        room_display = ", ".join(sorted(list(rooms_used))) if rooms_used else "N/A"
+        
+        # ── Prepare Grid Data ──────────────────────────────────────────────
+        days_present = [d for d in TimetableExportService.DAY_ORDER if d in grid or (d != 'Sunday' and d != 'Saturday')]
+        if len(days_present) > 6: days_present = days_present[:6] # Mon-Sat max
 
-        if max_period == 0:
-            max_period = 8  # default
+        # Get all periods for this semester to build headers
+        period_defs = PeriodDefinition.objects.filter(semester=semester).order_by('period_number')
+        period_map = {} # period_number -> PeriodDefinition (first one found to get times)
+        max_p = 0
+        for p in period_defs:
+            if p.period_number not in period_map:
+                period_map[p.period_number] = p
+            if p.period_number > max_p:
+                max_p = p.period_number
+        
+        period_numbers = sorted(list(period_map.keys()))
+        
+        # ── Setup Styles ──────────────────────────────────────────────────
+        styles = getSampleStyleSheet()
+        header_style = ParagraphStyle(
+            'HeaderStyle',
+            parent=styles['Normal'],
+            fontSize=10,
+            leading=12,
+            alignment=TA_CENTER,
+            fontName='Helvetica-Bold'
+        )
+        title_style = ParagraphStyle(
+            'TitleStyle',
+            parent=styles['Normal'],
+            fontSize=12,
+            leading=14,
+            alignment=TA_CENTER,
+            fontName='Helvetica-Bold',
+            spaceAfter=5
+        )
+        sub_title_style = ParagraphStyle(
+            'SubTitleStyle',
+            parent=styles['Normal'],
+            fontSize=9,
+            leading=11,
+            alignment=TA_CENTER,
+            fontName='Helvetica-Bold'
+        )
+        meta_style = ParagraphStyle(
+            'MetaStyle',
+            parent=styles['Normal'],
+            fontSize=9,
+            leading=11,
+            alignment=TA_LEFT,
+            fontName='Helvetica-Bold'
+        )
+        meta_style_right = ParagraphStyle(
+            'MetaStyleRight',
+            parent=styles['Normal'],
+            fontSize=9,
+            leading=11,
+            alignment=TA_RIGHT,
+            fontName='Helvetica-Bold'
+        )
+        grid_cell_style = ParagraphStyle(
+            'GridCell',
+            parent=styles['Normal'],
+            fontSize=8,
+            leading=9,
+            alignment=TA_CENTER,
+        )
 
-        period_numbers = list(range(1, max_period + 1))
-
-        # ── Build table data ──────────────────────────────────────────────
-        # Header row: blank + day names
-        header = ['Period'] + days_present
-        table_data = [header]
-
+        # ── Build Grid Table ───────────────────────────────────────────────
+        # Header Row 1: Period/Day | P1 | P2 | P3 | Lunch | P4 | P5 ...
+        # Header Row 2:            | Time | Time | Time | Time  | Time | Time ...
+        
+        col_headers1 = ['Period/ Day']
+        col_headers2 = ['']
+        
+        lunch_pos = 0
+        # For simplicity, detect lunch after P3 or based on time gap
+        # Most common: Lunch after P3
         for p_num in period_numbers:
-            row = [f'P{p_num}']
-            for day in days_present:
+            p_def = period_map[p_num]
+            col_headers1.append(str(p_num))
+            col_headers2.append(f"{p_def.start_time.strftime('%H.%M')} to {p_def.end_time.strftime('%H.%M')}")
+            
+            # Insert lunch break after P3 (common in sample) or if gap > 20 mins
+            if p_num == 3:
+                col_headers1.append('Lunch Break')
+                # Derive lunch time dynamically from period gap
+                if 4 in period_map:
+                    p3_end = p_def.end_time.strftime('%H.%M')
+                    p4_start = period_map[4].start_time.strftime('%H.%M')
+                    lunch_time_display = f"{p3_end} - {p4_start}"
+                else:
+                    lunch_time_display = '12.00 - 12.30'
+                col_headers2.append(lunch_time_display)
+                lunch_pos = len(col_headers1) - 1
+
+        table_data = [col_headers1, col_headers2]
+        
+        for day in days_present:
+            row = [day]
+            for i, p_num in enumerate(period_numbers):
+                # Handle Lunch break column insertion
+                if i + 1 == 4 and lunch_pos:
+                    row.append('') # Lunch break is usually a span, handled in TableStyle
+                
                 entry = grid.get(day, {}).get(p_num)
                 if entry:
-                    cell_lines = [
-                        entry.subject.code,
-                        entry.subject.name[:20],
-                    ]
+                    subj_code = entry.subject.code
+                    fac_initials = ""
                     if entry.faculty:
-                        cell_lines.append(entry.faculty.get_full_name()[:20])
-                    if entry.room:
-                        cell_lines.append(f'Room: {entry.room.room_number}')
-                    cell_text = '\n'.join(cell_lines)
+                        # Try to get initials from name
+                        parts = entry.faculty.get_full_name().split()
+                        fac_initials = "".join([p[0].upper() for p in parts if p])
+                    
+                    cell_text = f"{subj_code}-{fac_initials}" if fac_initials else subj_code
+                    row.append(cell_text)
                 else:
-                    cell_text = '—'
-                row.append(cell_text)
+                    row.append('')
             table_data.append(row)
 
-        # ── ReportLab document ────────────────────────────────────────────
+        # ── Subject/Faculty Mapping Table ──────────────────────────────────
+        mapping_data = [['Subject Code', 'Subject Name', 'Faculty Name']]
+        seen_subj_faculty = set()
+        
+        # Collect all unique subject-faculty pairs from the grid
+        for day_data in grid.values():
+            for entry in day_data.values():
+                key = (entry.subject.code, entry.faculty.id if entry.faculty else None)
+                if key not in seen_subj_faculty:
+                    seen_subj_faculty.add(key)
+                    mapping_data.append([
+                        entry.subject.code,
+                        entry.subject.name,
+                        entry.faculty.get_full_name() if entry.faculty else 'TBA'
+                    ])
+
+        # ── PDF Assembly ───────────────────────────────────────────────────
         buffer = io.BytesIO()
         doc = SimpleDocTemplate(
             buffer,
             pagesize=landscape(A4),
-            leftMargin=1 * cm,
-            rightMargin=1 * cm,
-            topMargin=1.5 * cm,
-            bottomMargin=1.5 * cm,
+            leftMargin=1*cm, rightMargin=1*cm, topMargin=1*cm, bottomMargin=1*cm
         )
-
-        styles = getSampleStyleSheet()
-        title_para = Paragraph(
-            f"<b>Timetable — {section.name}</b><br/>"
-            f"<font size='10'>Semester: {semester}</font>",
-            styles['Title'],
-        )
-
-        # Column widths: period col narrow, day cols equal
-        page_width = landscape(A4)[0] - 2 * cm  # usable width
-        period_col_w = 1.5 * cm
-        day_col_w = (page_width - period_col_w) / max(len(days_present), 1)
-        col_widths = [period_col_w] + [day_col_w] * len(days_present)
-
-        table = Table(table_data, colWidths=col_widths, repeatRows=1)
-        table.setStyle(TableStyle([
-            # Header
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1e3a5f')),
-            ('TEXTCOLOR',  (0, 0), (-1, 0), colors.white),
-            ('FONTNAME',   (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE',   (0, 0), (-1, 0), 9),
-            ('ALIGN',      (0, 0), (-1, 0), 'CENTER'),
-            ('VALIGN',     (0, 0), (-1, 0), 'MIDDLE'),
-
-            # Period label column
-            ('BACKGROUND', (0, 1), (0, -1), colors.HexColor('#f0f4f8')),
-            ('FONTNAME',   (0, 1), (0, -1), 'Helvetica-Bold'),
-            ('ALIGN',      (0, 1), (0, -1), 'CENTER'),
-
-            # Data cells
-            ('FONTSIZE',   (1, 1), (-1, -1), 8),
-            ('ALIGN',      (1, 1), (-1, -1), 'CENTER'),
-            ('VALIGN',     (0, 0), (-1, -1), 'MIDDLE'),
-
-            # Grid lines
-            ('GRID',       (0, 0), (-1, -1), 0.5, colors.HexColor('#adb5bd')),
-            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f8f9fa')]),
-
-            # Padding
-            ('TOPPADDING',    (0, 0), (-1, -1), 4),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
-            ('LEFTPADDING',   (0, 0), (-1, -1), 3),
-            ('RIGHTPADDING',  (0, 0), (-1, -1), 3),
+        
+        elements = []
+        
+        # Header Section
+        elements.append(Paragraph(university_name, header_style))
+        elements.append(Paragraph(school_name, header_style))
+        elements.append(Paragraph(dept_name, header_style))
+        elements.append(Paragraph('CLASS TIME TABLE', title_style))
+        elements.append(Paragraph(f"{semester.academic_year.year_code} ({str(semester.get_number_display()).upper()})", sub_title_style))
+        elements.append(Paragraph(f"CLASS & SECTION: {str(section.name).upper()}", sub_title_style))
+        elements.append(Spacer(1, 0.3*cm))
+        
+        # Meta Info (In-Charge, Room)
+        meta_table = Table([
+            [Paragraph(f"Class In-Charge Name: {in_charge_name}", meta_style), 
+             Paragraph(f"Room No: {room_display}", meta_style_right)]
+        ], colWidths=[15*cm, 10*cm])
+        meta_table.setStyle(TableStyle([('VALIGN', (0,0), (-1,-1), 'BOTTOM')]))
+        elements.append(meta_table)
+        elements.append(Spacer(1, 0.2*cm))
+        
+        # Grid Table
+        usable_width = 25*cm
+        day_col_width = 3*cm
+        lunch_col_width = 2*cm
+        other_cols_count = len(period_numbers)
+        remaining_width = usable_width - day_col_width - (lunch_col_width if lunch_pos else 0)
+        p_col_width = remaining_width / max(other_cols_count, 1)
+        
+        col_widths = [day_col_width]
+        current_idx = 1
+        for p_num in period_numbers:
+            col_widths.append(p_col_width)
+            if p_num == 3 and lunch_pos:
+                col_widths.append(lunch_col_width)
+        
+        grid_table = Table(table_data, colWidths=col_widths)
+        grid_style = [
+            ('GRID', (0,0), (-1,-1), 0.5, colors.black),
+            ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+            ('FONTSIZE', (0,0), (-1,-1), 8),
+            ('FONTNAME', (0,0), (-1,1), 'Helvetica-Bold'), # Headers
+            ('FONTNAME', (0,2), (0,-1), 'Helvetica-Bold'), # Day names
+        ]
+        
+        # Handle Lunch Break vertical span
+        if lunch_pos:
+            grid_style.append(('SPAN', (lunch_pos, 2), (lunch_pos, -1)))
+        
+        grid_table.setStyle(TableStyle(grid_style))
+        elements.append(grid_table)
+        elements.append(Spacer(1, 0.5*cm))
+        
+        # Mapping Table
+        mapping_table = Table(mapping_data, colWidths=[4*cm, 8*cm, 8*cm], hAlign='LEFT')
+        mapping_table.setStyle(TableStyle([
+            ('GRID', (0,0), (-1,-1), 0.5, colors.black),
+            ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0,0), (-1,-1), 8),
+            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
         ]))
-
-        generated_at = Paragraph(
-            f"<font size='7' color='grey'>Generated at {timezone.now().strftime('%Y-%m-%d %H:%M')} UTC</font>",
-            styles['Normal'],
-        )
-
-        doc.build([title_para, Spacer(1, 0.4 * cm), table, Spacer(1, 0.3 * cm), generated_at])
+        elements.append(mapping_table)
+        elements.append(Spacer(1, 0.5*cm))
+        
+        # Signatures
+        sig_table = Table([
+            [Paragraph('SIGNATURE OF THE FACULTY', meta_style), 
+             Paragraph('SIGNATURE OF THE HOD', meta_style_right)]
+        ], colWidths=[12.5*cm, 12.5*cm])
+        sig_table.setStyle(TableStyle([('TOPPADDING', (0,0), (-1,-1), 20)]))
+        elements.append(sig_table)
+        
+        doc.build(elements)
         return buffer.getvalue()
+
 
 
 # ===========================================================================
@@ -834,6 +963,11 @@ class TimetableViolationNotifier:
             from notifications.constants import NotificationType, NotificationPriority
             from core.models import User
             from django.utils import timezone as tz
+            from django.db import connection as db_connection
+
+            # Tenant-branded notification title
+            tenant = db_connection.tenant
+            notification_title = f"Timetable Violation - {tenant.short_name}"
 
             # Fetch all active HOD and ADMIN users
             recipients = list(
@@ -856,7 +990,7 @@ class TimetableViolationNotifier:
                 created = bulk_create_notifications(
                     recipients=recipients,
                     notification_type=NotificationType.SYSTEM_ALERT,
-                    title="Timetable Violation Detected",
+                    title=notification_title,
                     message=(
                         f"[Semester {semester_id}] {violation}\n"
                         f"Detected at: {timestamp_str}"

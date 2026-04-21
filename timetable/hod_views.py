@@ -65,13 +65,22 @@ class HODClassesView(APIView):
 
         classes_qs = classes_qs.order_by("year", "name", "code")
         
+        # Get current semester for frontend AI context
+        current_semester = Semester.objects.filter(is_current=True).first()
+        semester_id = current_semester.id if current_semester else None
+
         paginator = self.pagination_class()
         page = paginator.paginate_queryset(classes_qs, request, view=self)
         if page is not None:
             serializer = HODClassSerializer(page, many=True)
-            return paginator.get_paginated_response(serializer.data)
+            response = paginator.get_paginated_response(serializer.data)
+            response.data["current_semester_id"] = semester_id
+            return response
 
-        return Response(HODClassSerializer(classes_qs, many=True).data)
+        return Response({
+            "results": HODClassSerializer(classes_qs, many=True).data,
+            "current_semester_id": semester_id
+        })
 
 
 class HODTimetableView(APIView):
@@ -124,6 +133,7 @@ class HODTimetableView(APIView):
                 "periods": HODPeriodSerializer(periods, many=True, context={'request': request}).data,
                 "slots": HODTimetableSlotSerializer(ordered_slots, many=True, context={'request': request}).data,
                 "incharge": incharge_data,
+                "semester_id": semester.id if semester else None,
             }
         )
 

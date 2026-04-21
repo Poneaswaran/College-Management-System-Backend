@@ -962,3 +962,71 @@ class ExplainWhyNotView(View):
                 status=503,
             )
 
+
+# ─── Explain Conflicts (Scheduler Errors) ──────────────────────────────────────
+
+@method_decorator(csrf_exempt, name="dispatch")
+class ExplainConflictView(View):
+    """
+    POST /timetable/ai/explain-conflict/
+
+    Translates raw scheduler validation errors into friendly advice.
+    Body: {"error": "...", "context": {...}}
+    """
+
+    def post(self, request):
+        try:
+            body = json.loads(request.body)
+        except json.JSONDecodeError:
+            return JsonResponse({"error": "Invalid JSON body."}, status=400)
+
+        error_msg = body.get("error")
+        context = body.get("context", {})
+
+        if not error_msg:
+            return JsonResponse({"error": "error message is required."}, status=400)
+
+        # Enforce semester_id from context if available, else find an active one
+        semester_id = context.get("semester_id")
+        if not semester_id:
+            active_semester = Semester.objects.filter(is_active=True).first()
+            if active_semester:
+                semester_id = active_semester.id
+
+        if not semester_id:
+            return JsonResponse({"error": "No active semester found for context."}, status=400)
+
+        # Fetch state for context
+        from django.test import RequestFactory
+        state_view = TimetableStateView()
+        fake_get = RequestFactory().get("/")
+        state_response = state_view.get(fake_get, semester_id=semester_id)
+        state_json = json.loads(state_response.content)
+
+        payload = {
+            "message": error_msg,
+            "semester_id": semester_id,
+            "timetable_state": state_json,
+            "error_messages": [error_msg]
+        }
+
+        try:
+            with httpx.Client(timeout=45.0) as client:
+                response = client.post(
+                    f"{AI_BASE_URL}/timetable/explain-conflicts",
+                    json=payload,
+                    headers=AI_HEADERS,
+                )
+                response.raise_for_status()
+                return JsonResponse(response.json(), safe=False)
+        except httpx.HTTPStatusError as exc:
+            return JsonResponse(
+                {"error": "AI service error.", "detail": exc.response.text},
+                status=exc.response.status_code,
+            )
+        except httpx.RequestError:
+            return JsonResponse(
+                {"error": "AI service is unreachable."},
+                status=503,
+            )
+
