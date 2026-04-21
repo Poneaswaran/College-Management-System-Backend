@@ -25,10 +25,12 @@ from rest_framework.views import APIView
 from django.core.exceptions import ValidationError
 from django.http import FileResponse
 from django.db import transaction
+from django.utils import timezone
 
 from core.models import Section
 from timetable.models import (
     PeriodDefinition,
+    TimetableApprovalRequest,
     SectionSubjectRequirement,
     RoomMaintenanceBlock,
     Subject,
@@ -41,6 +43,8 @@ from .serializers import (
     SectionCreateTimetableSerializer,
     TimetableDetailSerializer,
     PeriodDefinitionSerializer,
+    TimetableApprovalRequestSerializer,
+    TimetableApprovalRequestStatusUpdateSerializer,
     SectionSubjectRequirementSerializer,
     SectionSubjectRequirementBulkSerializer,
     RoomMaintenanceBlockSerializer,
@@ -108,6 +112,88 @@ class FacultyScheduleListView(APIView):
         combined = TimetableService.get_faculty_combined_sessions(faculty_id, semester_id)
         combined_data = CombinedClassSessionSerializer(combined, many=True).data
         return Response({"entries": entries_data, "combined_sessions": combined_data})
+
+
+def _get_hod_department(user):
+    role_code = getattr(getattr(user, 'role', None), 'code', '').upper()
+    if role_code != 'HOD':
+        return None
+
+    department = getattr(user, 'department', None)
+    if department:
+        return department
+
+    faculty_profile = getattr(user, 'faculty_profile', None)
+    if faculty_profile and faculty_profile.department:
+        return faculty_profile.department
+
+    return None
+
+
+class HODTimetableApprovalRequestListView(APIView):
+    """
+    List timetable approval requests scoped to the logged-in HOD's department.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        department = _get_hod_department(request.user)
+        if not department:
+            return Response(
+                {'error': 'Only HOD users with a department can access this endpoint.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        qs = TimetableApprovalRequest.objects.select_related(
+            'submitted_by',
+            'semester',
+            'semester__academic_year',
+        ).filter(department=department)
+
+        status_filter = request.query_params.get('status')
+        semester_id = request.query_params.get('semester_id')
+
+        if status_filter:
+            status_filter = status_filter.upper()
+            if status_filter in {'PENDING', 'APPROVED', 'REJECTED'}:
+                qs = qs.filter(status=status_filter)
+
+        if semester_id:
+            qs = qs.filter(semester_id=semester_id)
+
+        serializer = TimetableApprovalRequestSerializer(qs, many=True)
+        return Response(serializer.data)
+
+
+class HODTimetableApprovalRequestStatusUpdateView(APIView):
+    """
+    Update status (PENDING/APPROVED/REJECTED) of a timetable approval request.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request, pk: int):
+        department = _get_hod_department(request.user)
+        if not department:
+            return Response(
+                {'error': 'Only HOD users with a department can update request status.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        try:
+            request_obj = TimetableApprovalRequest.objects.get(pk=pk, department=department)
+        except TimetableApprovalRequest.DoesNotExist:
+            return Response({'error': 'Approval request not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = TimetableApprovalRequestStatusUpdateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        request_obj.status = serializer.validated_data['status']
+        request_obj.review_note = serializer.validated_data.get('review_note', '')
+        request_obj.reviewed_by = request.user
+        request_obj.reviewed_at = timezone.now()
+        request_obj.save(update_fields=['status', 'review_note', 'reviewed_by', 'reviewed_at', 'updated_at'])
+
+        return Response(TimetableApprovalRequestSerializer(request_obj).data)
 
 
 # ===========================================================================
@@ -541,9 +627,26 @@ class TimetableExportView(APIView):
         from core.models import Section
 
         try:
-            section = Section.objects.select_related('course').get(pk=section_id)
+            section = Section.objects.select_related('course', 'course__department').get(pk=section_id)
         except Section.DoesNotExist:
             return Response({'error': 'Section not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        # Security/Tenant Isolation Check
+        user = request.user
+        role_code = getattr(getattr(user, 'role', None), 'code', '').upper()
+
+        if role_code == 'HOD':
+            user_dept = getattr(user, 'department', None)
+            if not user_dept or section.course.department_id != user_dept.id:
+                return Response({'error': 'Unauthorized. You can only export timetables for your own department.'}, status=status.HTTP_403_FORBIDDEN)
+        
+        elif role_code == 'STUDENT':
+            student_profile = getattr(user, 'student_profile', None)
+            if not student_profile or student_profile.section_id != section.id:
+                return Response({'error': 'Unauthorized. You can only export your own section\'s timetable.'}, status=status.HTTP_403_FORBIDDEN)
+        
+        # For Admin or Faculty, we might allow or add more checks, 
+        # but for now, we prioritize HOD/Tenant and Student isolation.
 
         try:
             pdf_bytes = TimetableExportService.generate_pdf(
@@ -559,7 +662,12 @@ class TimetableExportView(APIView):
             )
 
         import io
-        filename = f"timetable_{section.name.replace(' ', '_')}.pdf"
+        from django.db import connection as db_connection
+        tenant = db_connection.tenant
+        institution_slug = tenant.short_name.lower().replace(" ", "_")
+        dept_slug = section.course.department.code.lower()
+        section_slug = section.name.replace(' ', '_')
+        filename = f"{institution_slug}_{dept_slug}_timetable_{section_slug}.pdf"
         response = FileResponse(
             io.BytesIO(pdf_bytes),
             content_type='application/pdf',

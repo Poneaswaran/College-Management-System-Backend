@@ -3,6 +3,7 @@ from django.urls import path
 from .views import (
     FacultyCoursesView,
     FacultyDashboardView,
+    HODFacultyListView,
     FacultyProfileView,
     FacultyStudentsView,
     ParentRequestOtpView,
@@ -48,6 +49,7 @@ urlpatterns = [
     path("faculty/dashboard/", FacultyDashboardView.as_view(), name="profile-faculty-dashboard"),
     path("faculty/courses/", FacultyCoursesView.as_view(), name="profile-faculty-courses"),
     path("faculty/students/", FacultyStudentsView.as_view(), name="profile-faculty-students"),
+    path("hod/faculty-list/", HODFacultyListView.as_view(), name="profile-hod-faculty-list"),
     path("parents/request-otp/", ParentRequestOtpView.as_view(), name="profile-parent-request-otp"),
     path("parents/verify-otp/", ParentVerifyOtpView.as_view(), name="profile-parent-verify-otp"),
 ]

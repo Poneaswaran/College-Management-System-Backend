@@ -23,6 +23,7 @@ from timetable.models import (
     Subject,
     PeriodDefinition,
     Room,
+    TimetableApprovalRequest,
     SectionSubjectRequirement,
     RoomMaintenanceBlock,
     DepartmentSectionCombinePolicy,
@@ -99,6 +100,48 @@ class SectionCreateTimetableSerializer(serializers.Serializer):
     section_id = serializers.IntegerField(required=True)
     semester_id = serializers.IntegerField(required=True)
     entries = BulkTimetableEntryInputSerializer(many=True, required=True)
+
+
+# ===========================================================================
+# HOD Timetable Approval serializers
+# ===========================================================================
+
+class TimetableApprovalRequestSerializer(serializers.ModelSerializer):
+    submitted_by_name = serializers.CharField(source='submitted_by.get_full_name', read_only=True)
+    semester_label = serializers.SerializerMethodField(read_only=True)
+    academic_year = serializers.SerializerMethodField(read_only=True)
+
+    class Meta:
+        model = TimetableApprovalRequest
+        fields = [
+            'id',
+            'status',
+            'change_summary',
+            'note',
+            'slots',
+            'submitted_by_name',
+            'semester_label',
+            'academic_year',
+            'review_note',
+            'reviewed_at',
+            'created_at',
+            'updated_at',
+        ]
+
+    def get_semester_label(self, obj) -> str:
+        if not obj.semester:
+            return 'N/A'
+        return obj.semester.get_number_display()
+
+    def get_academic_year(self, obj) -> str:
+        if not obj.semester:
+            return 'N/A'
+        return obj.semester.academic_year.year_code
+
+
+class TimetableApprovalRequestStatusUpdateSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(choices=['PENDING', 'APPROVED', 'REJECTED'])
+    review_note = serializers.CharField(required=False, allow_blank=True, default='')
 
 
 # ===========================================================================

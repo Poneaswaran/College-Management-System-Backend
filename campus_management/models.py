@@ -1,6 +1,14 @@
 from django.db import models
 from django.core.exceptions import ValidationError
 
+
+def _build_check_constraint(*, expression, name):
+    """Support both Django signatures: CheckConstraint(check=...) and condition=...."""
+    try:
+        return models.CheckConstraint(condition=expression, name=name)
+    except TypeError:
+        return models.CheckConstraint(check=expression, name=name)
+
 class Building(models.Model):
     name = models.CharField(max_length=255)
     code = models.CharField(max_length=50, unique=True)
@@ -82,11 +90,12 @@ class ResourceAllocation(models.Model):
     class Meta:
         # SQLite doesn't support complex range constraints, so check is on application side and simple valid range
         constraints = [
-            models.CheckConstraint(
-                condition=models.Q(start_time__lt=models.F('end_time')),
-                name='campus_management_valid_allocation_range'
+            _build_check_constraint(
+                expression=models.Q(start_time__lt=models.F('end_time')),
+                name='campus_management_valid_allocation_range',
             )
         ]
+
 
     def __str__(self):
         return f"{self.allocation_type} on {self.resource} ({self.start_time} - {self.end_time})"

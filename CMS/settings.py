@@ -27,6 +27,11 @@ AI_SERVICE_INGEST_PATH = os.getenv('AI_SERVICE_INGEST_PATH', '/ingest')
 AI_SERVICE_QUERY_PATH = os.getenv('AI_SERVICE_QUERY_PATH', '/query')
 AI_SERVICE_DELETE_PATH = os.getenv('AI_SERVICE_DELETE_PATH', '/delete')
 
+# Timetable AI Copilot — same FastAPI service, dedicated path prefix
+TIMETABLE_AI_BASE_URL = os.getenv('TIMETABLE_AI_BASE_URL', 'http://localhost:8001')
+TIMETABLE_AI_SECRET   = os.getenv('TIMETABLE_AI_SECRET', '1Nnzm1F7InKkjCPJmJopRMc9oX77ObVvyqKqMkz601j')
+
+
 AI_INGEST_MAX_RETRIES = int(os.getenv('AI_INGEST_MAX_RETRIES', '3'))
 AI_INGEST_BACKOFF_SECONDS = int(os.getenv('AI_INGEST_BACKOFF_SECONDS', '2'))
 
@@ -46,18 +51,35 @@ DEBUG = True
 ALLOWED_HOSTS = ['*']
 
 
-# Application definition
+# ===========================================================================
+# DJANGO-TENANTS CONFIGURATION
+# ===========================================================================
 
-INSTALLED_APPS = [
-    'django.contrib.admin',
-    'django.contrib.auth',
-    'django.contrib.contenttypes',
-    'django.contrib.sessions',
-    'django.contrib.messages',
-    'django.contrib.staticfiles',
-    'corsheaders',
-    'rest_framework',
-    "strawberry.django",
+# django-tenants model references
+TENANT_MODEL = "tenants.Client"
+TENANT_DOMAIN_MODEL = "tenants.Domain"
+
+# Apps that live in the PUBLIC schema (shared across all tenants)
+SHARED_APPS = [
+    "django_tenants",
+    "tenants",
+    "django.contrib.admin",
+    "django.contrib.auth",
+    "django.contrib.contenttypes",
+    "django.contrib.sessions",
+    "django.contrib.messages",
+    "django.contrib.staticfiles",
+    "core",  # Core must be here so Admin can find the User model
+    "corsheaders",
+]
+
+# Apps that live in each TENANT's private schema (data-isolated)
+TENANT_APPS = [
+    "django.contrib.contenttypes",
+    "django.contrib.auth",
+    "django.contrib.admin",
+    "django.contrib.sessions",
+    "django.contrib.messages",
     "core",
     "profile_management",
     "timetable",
@@ -70,6 +92,13 @@ INSTALLED_APPS = [
     "study_materials",
     "onboarding",
     "campus_management",
+    "rest_framework",
+    "strawberry.django",
+]
+
+# Combine: INSTALLED_APPS = SHARED_APPS + (TENANT_APPS not already in SHARED_APPS)
+INSTALLED_APPS = list(SHARED_APPS) + [
+    app for app in TENANT_APPS if app not in SHARED_APPS
 ]
 
 try:
@@ -79,7 +108,29 @@ try:
 except Exception:
     pass
 
+# ===========================================================================
+# DATABASE — django-tenants requires the postgresql_backend engine
+# ===========================================================================
+
+DATABASES = {
+    "default": {
+        "ENGINE": "django_tenants.postgresql_backend",
+        "NAME": os.getenv("DB_NAME", "cms_db"),
+        "USER": os.getenv("DB_USER", "cms_user"),
+        "PASSWORD": os.getenv("DB_PASSWORD", "cms_password"),
+        "HOST": os.getenv("DB_HOST", "localhost"),
+        "PORT": os.getenv("DB_PORT", "5432"),
+    }
+}
+
+DATABASE_ROUTERS = ["django_tenants.routers.TenantSyncRouter"]
+
+# ===========================================================================
+# MIDDLEWARE — TenantMainMiddleware MUST be first
+# ===========================================================================
+
 MIDDLEWARE = [
+    'django_tenants.middleware.main.TenantMainMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
@@ -91,7 +142,14 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
+# ===========================================================================
+# URL CONFIGURATION
+# ===========================================================================
+
 ROOT_URLCONF = 'CMS.urls'
+PUBLIC_SCHEMA_URLCONF = 'CMS.public_urls'
+
+AUTH_USER_MODEL = "core.User"
 
 TEMPLATES = [
     {
@@ -110,18 +168,6 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'CMS.wsgi.application'
 
-
-# Database
-# https://docs.djangoproject.com/en/6.0/ref/settings/#databases
-
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
-    }
-}
-
-AUTH_USER_MODEL = "core.User"
 
 # Password validation
 # https://docs.djangoproject.com/en/6.0/ref/settings/#auth-password-validators
@@ -194,16 +240,31 @@ CORS_ALLOWED_ORIGINS = [
     "http://192.168.1.6:3000",
 ]
 
+# Allow any subdomain of localhost on common frontend ports (3000, 5173, 5174)
+CORS_ALLOWED_ORIGIN_REGEXES = [
+    r"^http://.*\.localhost:3000$",
+    r"^http://.*\.localhost:5173$",
+    r"^http://.*\.localhost:5174$",
+]
+
 CSRF_TRUSTED_ORIGINS = [
     "https://college-management-system-backend-64g7.onrender.com",
     "http://localhost:3000",
+    "http://*.localhost:3000", # Support subdomains for CSRF as well
     "http://192.168.3.47:3000",
 ]
 
 # If your frontend needs cookies/auth credentials, enable this:
 # CORS_ALLOW_CREDENTIALS = True  
 APPEND_SLASH = False
-USE_TZ = True
+
+# Caching Configuration
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "feature-flags",
+    }
+}
 
 # Redis Configuration (for real-time notifications)
 REDIS_URL = 'redis://localhost:6379/0'

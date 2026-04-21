@@ -23,14 +23,67 @@ class FacultyProfileService:
             return None
 
     @staticmethod
-    def list_faculties(user=None, department_id=None, designation=None):
-        qs = FacultyProfile.objects.filter(is_active=True).select_related("user", "department")
+    def list_faculties(user=None, department_id=None, designation=None, is_active=True):
+        qs = FacultyProfile.objects.select_related("user", "department")
         qs = TenantService.apply_department_scope(qs, user=user, field_name="department")
+        if is_active is not None:
+            qs = qs.filter(is_active=is_active)
         if department_id:
             qs = qs.filter(department_id=department_id)
         if designation:
             qs = qs.filter(designation__icontains=designation)
         return qs
+
+    @staticmethod
+    def hod_faculty_list(user, search=None, designation=None, is_active=None, page=1, page_size=10):
+        if user.role.code not in ("HOD", "ADMIN"):
+            return None
+
+        queryset = FacultyProfileService.list_faculties(
+            user=user,
+            designation=designation,
+            is_active=is_active,
+        )
+
+        if search:
+            queryset = queryset.filter(
+                Q(first_name__icontains=search)
+                | Q(last_name__icontains=search)
+                | Q(user__email__icontains=search)
+                | Q(designation__icontains=search)
+                | Q(specialization__icontains=search)
+            )
+
+        queryset = queryset.order_by("first_name", "last_name", "id")
+        total_count = queryset.count()
+
+        offset = (page - 1) * page_size
+        faculty_page = queryset[offset : offset + page_size]
+
+        results = [
+            {
+                "id": faculty.id,
+                "user_id": faculty.user_id,
+                "full_name": faculty.full_name,
+                "email": faculty.user.email if faculty.user else None,
+                "department_id": faculty.department_id,
+                "department_name": faculty.department.name if faculty.department else None,
+                "designation": faculty.designation,
+                "specialization": faculty.specialization,
+                "joining_date": faculty.joining_date,
+                "office_hours": faculty.office_hours,
+                "teaching_load": faculty.teaching_load,
+                "is_active": faculty.is_active,
+            }
+            for faculty in faculty_page
+        ]
+
+        return {
+            "count": total_count,
+            "page": page,
+            "page_size": page_size,
+            "results": results,
+        }
 
     @staticmethod
     def update_profile(data, request_user, user_id=None):

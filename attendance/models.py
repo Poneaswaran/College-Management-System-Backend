@@ -10,6 +10,14 @@ from django.db.models import Q
 import os
 
 
+def _build_check_constraint(*, expression, name):
+    """Support both Django signatures: CheckConstraint(check=...) and condition=...."""
+    try:
+        return models.CheckConstraint(condition=expression, name=name)
+    except TypeError:
+        return models.CheckConstraint(check=expression, name=name)
+
+
 def attendance_image_path(instance, filename):
     """
     Generate unique path for attendance images
@@ -141,8 +149,8 @@ class AttendanceSession(models.Model):
         ]
 
         constraints = [
-            models.CheckConstraint(
-                condition=(
+            _build_check_constraint(
+                expression=(
                     (Q(timetable_entry__isnull=False) & Q(combined_session__isnull=True))
                     | (Q(timetable_entry__isnull=True) & Q(combined_session__isnull=False))
                 ),

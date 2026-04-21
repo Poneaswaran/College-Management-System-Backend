@@ -183,6 +183,7 @@ class CustomGraphQLView(GraphQLView):
 urlpatterns = [
     path('admin/', admin.site.urls),
     path("graphql/", csrf_exempt(CustomGraphQLView.as_view(schema=schema))),
+    path('api/hod/', include('timetable.hod_urls')),
     path('api/', include('onboarding.urls')),
     path('api/profile/', include('profile_management.urls')),
     path('api/notifications/', include('notifications.urls')),
@@ -192,6 +193,8 @@ urlpatterns = [
     path('api/campus-management/', include('campus_management.urls')),
     path('api/timetable/', include('timetable.urls')),
     path('api/core/', include('core.urls')),
+    path('api/tenant/', include('tenants.urls')),
+    path('api/config/', include('configuration.urls')),
 ]
 
 # Serve media files in development

@@ -101,6 +101,36 @@ class FacultyProfileUpdateSerializer(serializers.Serializer):
     user_id = serializers.IntegerField(required=False)
 
 
+class HODFacultyListQuerySerializer(serializers.Serializer):
+    search = serializers.CharField(required=False, allow_blank=False)
+    designation = serializers.CharField(required=False, allow_blank=False)
+    is_active = serializers.BooleanField(required=False)
+    page = serializers.IntegerField(required=False, min_value=1, default=1)
+    page_size = serializers.IntegerField(required=False, min_value=1, max_value=100, default=10)
+
+
+class HODFacultyListItemSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    user_id = serializers.IntegerField()
+    full_name = serializers.CharField()
+    email = serializers.EmailField(allow_null=True)
+    department_id = serializers.IntegerField(allow_null=True)
+    department_name = serializers.CharField(allow_null=True)
+    designation = serializers.CharField()
+    specialization = serializers.CharField()
+    joining_date = serializers.DateField()
+    office_hours = serializers.CharField(allow_blank=True)
+    teaching_load = serializers.IntegerField()
+    is_active = serializers.BooleanField()
+
+
+class HODFacultyListResponseSerializer(serializers.Serializer):
+    count = serializers.IntegerField()
+    page = serializers.IntegerField()
+    page_size = serializers.IntegerField()
+    results = HODFacultyListItemSerializer(many=True)
+
+
 class ParentOtpRequestSerializer(serializers.Serializer):
     register_number = serializers.CharField(required=True)
 

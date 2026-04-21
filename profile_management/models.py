@@ -239,6 +239,7 @@ class FacultyProfile(models.Model):
     joining_date = models.DateField()
     office_hours = models.CharField(max_length=200, blank=True, help_text="e.g., Mon-Wed 2-4 PM")
     teaching_load = models.PositiveIntegerField(default=0, help_text="Hours per week")
+    profile_photo = models.ImageField(upload_to='faculty_profiles/', null=True, blank=True)
     
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -259,6 +260,49 @@ class FacultyProfile(models.Model):
         if self.first_name:
             return f"{self.first_name} {self.last_name or ''}".strip()
         return self.user.email.split('@')[0] if self.user.email else "Faculty"
+
+
+# ==================================================
+# SECTION IN-CHARGE (Item 2)
+# ==================================================
+
+class SectionIncharge(models.Model):
+    """
+    Tracks which faculty member is responsible for a particular section
+    during a given semester (Class Teacher role).
+    """
+    section = models.ForeignKey(
+        'core.Section', 
+        on_delete=models.CASCADE, 
+        related_name='in_charge_history'
+    )
+    semester = models.ForeignKey(
+        'profile_management.Semester', 
+        on_delete=models.CASCADE, 
+        related_name='section_incharges'
+    )
+    faculty = models.ForeignKey(
+        settings.AUTH_USER_MODEL, 
+        on_delete=models.CASCADE, 
+        related_name='in_charge_sections',
+        limit_choices_to={'role__code': 'FACULTY'}
+    )
+    
+    assigned_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('section', 'semester')
+        ordering = ['-semester__start_date', 'section']
+        verbose_name = "Section In-Charge"
+        verbose_name_plural = "Section In-Charges"
+        indexes = [
+            models.Index(fields=['section', 'semester']),
+            models.Index(fields=['faculty', 'semester']),
+        ]
+
+    def __str__(self):
+        return f"{self.section.name} - {self.semester}"
 
 
 # ==================================================
