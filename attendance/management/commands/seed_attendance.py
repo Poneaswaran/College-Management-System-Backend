@@ -2,9 +2,11 @@
 Management command to seed attendance data for testing
 Creates sample attendance sessions and records
 """
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 from datetime import timedelta
+from django_tenants.utils import schema_context
+from tenants.models import Client
 
 from attendance.models import AttendanceSession, StudentAttendance
 from timetable.models import TimetableEntry
@@ -13,8 +15,27 @@ from profile_management.models import Semester
 
 class Command(BaseCommand):
     help = 'Seed attendance data for testing'
-    
+
+    def add_arguments(self, parser):
+        parser.add_argument(
+            '--schema',
+            type=str,
+            required=True,
+            help="Tenant schema name to seed attendance into (e.g. 'vels').",
+        )
+
     def handle(self, *args, **options):
+        schema_name = options['schema']
+        try:
+            Client.objects.get(schema_name=schema_name)
+        except Client.DoesNotExist:
+            raise CommandError(f"Tenant with schema '{schema_name}' does not exist.")
+
+        with schema_context(schema_name):
+            self._seed()
+
+    def _seed(self):
+        """Seed attendance data for the current schema context."""
         self.stdout.write(self.style.WARNING('Seeding Attendance Data...'))
         self.stdout.write('')
         

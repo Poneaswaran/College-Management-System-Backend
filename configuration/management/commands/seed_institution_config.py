@@ -10,15 +10,20 @@ Usage:
     python manage.py seed_institution_config --department CSE --university "Custom University"
 """
 
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
+from django_tenants.utils import schema_context
+from tenants.models import Client
 
 from configuration.models import Configuration
 from core.models import Department
 
 
-# Default institution values - change these to match your institution
-DEFAULT_UNIVERSITY = "VELS INSTITUTE OF SCIENCE, TECHNOLOGY & ADVANCED STUDIES (VISTAS)"
-DEFAULT_SCHOOL = "SCHOOL OF MANAGEMENT STUDIES AND COMMERCE"
+# Default institution values are intentionally blank.
+# University and school names are resolved at runtime from connection.tenant.
+# Pass values via --university / --school CLI args when seeding a specific tenant,
+# or leave blank and configure per-tenant in Django Admin > Configuration.
+DEFAULT_UNIVERSITY = ""
+DEFAULT_SCHOOL = ""
 
 # Additional PDF defaults
 DEFAULT_PDF_TITLE = "CLASS TIME TABLE"
@@ -45,16 +50,22 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument(
+            "--schema",
+            type=str,
+            required=True,
+            help="Tenant schema name to seed configuration into (e.g. 'vels', 'anna').",
+        )
+        parser.add_argument(
             "--university",
             type=str,
             default=DEFAULT_UNIVERSITY,
-            help="University name to seed as the global default.",
+            help="University name to seed as the global default (leave blank to configure in Admin).",
         )
         parser.add_argument(
             "--school",
             type=str,
             default=DEFAULT_SCHOOL,
-            help="School name to seed as the global default.",
+            help="School name to seed as the global default (leave blank to configure in Admin).",
         )
         parser.add_argument(
             "--department",
@@ -69,11 +80,21 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        schema_name = options["schema"]
         university = options["university"]
         school = options["school"]
         dept_filter = options["department"]
         force = options["force"]
 
+        try:
+            Client.objects.get(schema_name=schema_name)
+        except Client.DoesNotExist:
+            raise CommandError(f"Tenant with schema '{schema_name}' does not exist.")
+
+        with schema_context(schema_name):
+            self._seed(university, school, dept_filter, force)
+
+    def _seed(self, university, school, dept_filter, force):
         # Build the seed data with CLI overrides for university/school
         seed_data = list(SEED_KEYS)
         seed_data[0] = ("university_name", university, seed_data[0][2])

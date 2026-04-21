@@ -2,17 +2,38 @@
 Management command to update all user passwords to use Argon2 hashing
 Re-hashes all existing passwords with the new Argon2 algorithm
 """
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
+from django_tenants.utils import schema_context
+from tenants.models import Client
 
 from core.models import User
 
 
 class Command(BaseCommand):
     help = 'Update all user passwords to use Argon2 hashing'
-    
+
+    def add_arguments(self, parser):
+        parser.add_argument(
+            '--schema',
+            type=str,
+            required=True,
+            help="Tenant schema name to update passwords for (e.g. 'vels').",
+        )
+
     def handle(self, *args, **options):
-        self.stdout.write(self.style.WARNING('=' * 60))
+        schema_name = options['schema']
+
+        try:
+            Client.objects.get(schema_name=schema_name)
+        except Client.DoesNotExist:
+            raise CommandError(f"Tenant with schema '{schema_name}' does not exist.")
+
+        with schema_context(schema_name):
+            self._update_passwords()
+
+    def _update_passwords(self):
+        """Reset all user passwords to Argon2-hashed Test@123 for the current schema."""
         self.stdout.write(self.style.WARNING('Updating Passwords to Argon2...'))
         self.stdout.write(self.style.WARNING('=' * 60))
         self.stdout.write('')

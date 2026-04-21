@@ -3,9 +3,11 @@ pipenv run python manage.py seed_profiles
 Management command to seed dummy user profiles for testing
 Creates sample students, faculty, HOD, and admin users
 """
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 from datetime import date, timedelta
+from django_tenants.utils import schema_context
+from tenants.models import Client
 
 from core.models import User, Role, Department, Course, Section
 from profile_management.models import StudentProfile, AcademicYear, Semester
@@ -13,9 +15,27 @@ from profile_management.models import StudentProfile, AcademicYear, Semester
 
 class Command(BaseCommand):
     help = 'Seed dummy user profiles (students, faculty, HOD, admin)'
-    
+
+    def add_arguments(self, parser):
+        parser.add_argument(
+            '--schema',
+            type=str,
+            required=True,
+            help="Tenant schema name to seed profiles into (e.g. 'vels').",
+        )
+
     def handle(self, *args, **options):
-        self.stdout.write(self.style.WARNING('=' * 60))
+        schema_name = options['schema']
+        try:
+            Client.objects.get(schema_name=schema_name)
+        except Client.DoesNotExist:
+            raise CommandError(f"Tenant with schema '{schema_name}' does not exist.")
+
+        with schema_context(schema_name):
+            self._seed()
+
+    def _seed(self):
+        """Seed user profiles for the current schema context."""
         self.stdout.write(self.style.WARNING('Seeding User Profiles...'))
         self.stdout.write(self.style.WARNING('=' * 60))
         self.stdout.write('')

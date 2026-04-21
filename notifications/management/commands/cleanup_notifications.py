@@ -7,6 +7,8 @@ Usage: python manage.py cleanup_notifications
 import logging
 from django.core.management.base import BaseCommand
 from django.utils import timezone
+from django_tenants.utils import schema_context
+from tenants.models import Client
 
 from notifications.services.cleanup_service import (
     cleanup_old_notifications,
@@ -34,24 +36,43 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        """Execute the cleanup command."""
+        """Execute the cleanup command across all tenant schemas."""
         dry_run = options['dry_run']
         verbose = options['verbose']
-        
+
         self.stdout.write(
             self.style.SUCCESS(
                 f'\n=== Notification Cleanup Started at {timezone.now()} ===\n'
             )
         )
-        
+
+        tenants = Client.objects.exclude(schema_name='public')
+        if not tenants.exists():
+            self.stdout.write(self.style.WARNING('No tenant schemas found.'))
+            return
+
+        for tenant in tenants:
+            self.stdout.write(
+                self.style.MIGRATE_HEADING(f'\n--- Tenant: {tenant.schema_name} ({tenant.name}) ---')
+            )
+            with schema_context(tenant.schema_name):
+                self._run_cleanup(dry_run, verbose)
+
+        self.stdout.write(
+            self.style.SUCCESS(
+                f'\n=== Notification Cleanup Finished at {timezone.now()} ===\n'
+            )
+        )
+
+    def _run_cleanup(self, dry_run: bool, verbose: bool) -> None:
+        """Run notification cleanup for the current schema context."""
         if dry_run:
             self.stdout.write(
                 self.style.WARNING('DRY RUN MODE - No notifications will be deleted\n')
             )
-            
-            # Get statistics
+
             stats = get_cleanup_statistics()
-            
+
             self.stdout.write('Cleanup preview:')
             self.stdout.write(f"  Dismissed notifications to delete: {stats['dismissed_candidates']}")
             self.stdout.write(f"  Old read notifications to delete: {stats['read_candidates']}")
@@ -62,13 +83,13 @@ class Command(BaseCommand):
                 )
             )
             self.stdout.write(f"  Current total notifications: {stats['total_notifications']}")
-            
+
         else:
             # Auto-dismiss expired notifications first
             try:
                 self.stdout.write('Auto-dismissing expired notifications...')
                 dismissed_count = auto_dismiss_expired_notifications()
-                
+
                 if verbose:
                     self.stdout.write(
                         self.style.SUCCESS(
@@ -80,12 +101,12 @@ class Command(BaseCommand):
                     self.style.ERROR(f'  ✗ Error auto-dismissing: {str(e)}')
                 )
                 logger.error(f"Error in auto-dismiss: {str(e)}")
-            
+
             # Clean up old notifications
             try:
                 self.stdout.write('\nCleaning up old notifications...')
                 counts = cleanup_old_notifications()
-                
+
                 self.stdout.write(
                     self.style.SUCCESS(
                         f'\n✓ Cleanup completed successfully:\n'
@@ -99,19 +120,13 @@ class Command(BaseCommand):
                         f"\n  TOTAL DELETED: {counts['total']}\n"
                     )
                 )
-                
+
                 if counts['total'] > 0:
                     logger.info(f"Cleanup command deleted {counts['total']} notifications")
-                
+
             except Exception as e:
                 self.stdout.write(
                     self.style.ERROR(f'\n✗ Cleanup failed: {str(e)}\n')
                 )
                 logger.error(f"Cleanup command failed: {str(e)}")
                 raise
-        
-        self.stdout.write(
-            self.style.SUCCESS(
-                f'\n=== Notification Cleanup Finished at {timezone.now()} ===\n'
-            )
-        )

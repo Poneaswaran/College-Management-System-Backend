@@ -1,8 +1,10 @@
 """
 Management command to seed initial timetable data
 """
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 from datetime import date, time
+from django_tenants.utils import schema_context
+from tenants.models import Client
 
 from profile_management.models import AcademicYear, Semester
 from timetable.models import TimetableConfiguration
@@ -11,7 +13,26 @@ from timetable.models import TimetableConfiguration
 class Command(BaseCommand):
     help = 'Seed initial data for timetable system (AcademicYear, Semester, Configuration)'
 
+    def add_arguments(self, parser):
+        parser.add_argument(
+            '--schema',
+            type=str,
+            required=True,
+            help="Tenant schema name to seed timetable data into (e.g. 'vels').",
+        )
+
     def handle(self, *args, **options):
+        schema_name = options['schema']
+        try:
+            Client.objects.get(schema_name=schema_name)
+        except Client.DoesNotExist:
+            raise CommandError(f"Tenant with schema '{schema_name}' does not exist.")
+
+        with schema_context(schema_name):
+            self._seed()
+
+    def _seed(self):
+        """Seed timetable base data for the current schema context."""
         self.stdout.write(self.style.WARNING('Starting timetable data seeding...'))
         
         # Create Academic Year
