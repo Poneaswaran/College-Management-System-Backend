@@ -10,10 +10,19 @@ from rest_framework.views import APIView
 from core.auth import JWTAuthentication
 from onboarding.async_queue import async_task
 from onboarding.constants import TASK_ENTITY_FACULTY, TASK_ENTITY_STUDENT
-from onboarding.models import OnboardingDraft, OnboardingTaskLog, StudentOnboardingApproval, TemporaryOnboardingAccess
+from onboarding.models import (
+    OnboardingDraft, 
+    OnboardingTaskLog, 
+    StudentOnboardingApproval, 
+    FacultyOnboardingApproval, 
+    TemporaryOnboardingAccess
+)
 from onboarding.permissions import IsAdminRole
 from onboarding.serializers.admin_serializers import (
+    BulkApprovalActionSerializer,
+    FacultyApprovalActionSerializer,
     FacultyManualOnboardingSerializer,
+    FacultyOnboardingApprovalSerializer,
     OnboardingDraftCreateSerializer,
     OnboardingDraftSerializer,
     OnboardingDraftUpdateSerializer,
@@ -24,7 +33,7 @@ from onboarding.serializers.admin_serializers import (
     TemporaryAccessRevokeSerializer,
 )
 from onboarding.services.access_service import TemporaryAccessService
-from onboarding.services.approval_service import StudentApprovalService
+from onboarding.services.approval_service import StudentApprovalService, FacultyApprovalService
 from onboarding.services.audit_service import OnboardingAuditService
 from onboarding.services.faculty_onboarding_service import FacultyOnboardingService
 from onboarding.services.student_onboarding_service import StudentOnboardingService
@@ -228,6 +237,115 @@ class RejectStudentOnboardingView(APIView):
         return Response(StudentOnboardingApprovalSerializer(approval).data, status=status.HTTP_200_OK)
 
 
+class BulkApproveStudentOnboardingView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated, IsAdminRole]
+
+    def post(self, request, *args, **kwargs):
+        serializer = BulkApprovalActionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        approvals = StudentApprovalService.bulk_approve(
+            student_ids=serializer.validated_data["ids"],
+            approved_by=request.user,
+            remarks=serializer.validated_data.get("remarks", ""),
+        )
+        return Response(StudentOnboardingApprovalSerializer(approvals, many=True).data, status=status.HTTP_200_OK)
+
+
+class BulkRejectStudentOnboardingView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated, IsAdminRole]
+
+    def post(self, request, *args, **kwargs):
+        serializer = BulkApprovalActionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        approvals = StudentApprovalService.bulk_reject(
+            student_ids=serializer.validated_data["ids"],
+            rejected_by=request.user,
+            remarks=serializer.validated_data.get("remarks", ""),
+        )
+        return Response(StudentOnboardingApprovalSerializer(approvals, many=True).data, status=status.HTTP_200_OK)
+
+
+class PendingFacultyApprovalsView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated, IsAdminRole]
+
+    def get(self, request, *args, **kwargs):
+        pending = FacultyOnboardingApproval.objects.select_related("faculty_profile").filter(status="PENDING")
+        return Response(FacultyOnboardingApprovalSerializer(pending, many=True).data)
+
+
+class ApproveFacultyOnboardingView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated, IsAdminRole]
+
+    def post(self, request, faculty_id, *args, **kwargs):
+        serializer = FacultyApprovalActionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        from profile_management.models import FacultyProfile
+        faculty_profile = get_object_or_404(FacultyProfile.objects.select_related("user"), id=faculty_id)
+        approval = FacultyApprovalService.approve(
+            faculty_profile=faculty_profile,
+            approved_by=request.user,
+            remarks=serializer.validated_data.get("remarks", ""),
+        )
+        return Response(FacultyOnboardingApprovalSerializer(approval).data, status=status.HTTP_200_OK)
+
+
+class RejectFacultyOnboardingView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated, IsAdminRole]
+
+    def post(self, request, faculty_id, *args, **kwargs):
+        serializer = FacultyApprovalActionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        from profile_management.models import FacultyProfile
+        faculty_profile = get_object_or_404(FacultyProfile.objects.select_related("user"), id=faculty_id)
+        approval = FacultyApprovalService.reject(
+            faculty_profile=faculty_profile,
+            rejected_by=request.user,
+            remarks=serializer.validated_data.get("remarks", ""),
+        )
+        return Response(FacultyOnboardingApprovalSerializer(approval).data, status=status.HTTP_200_OK)
+
+
+class BulkApproveFacultyOnboardingView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated, IsAdminRole]
+
+    def post(self, request, *args, **kwargs):
+        serializer = BulkApprovalActionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        approvals = FacultyApprovalService.bulk_approve(
+            faculty_ids=serializer.validated_data["ids"],
+            approved_by=request.user,
+            remarks=serializer.validated_data.get("remarks", ""),
+        )
+        return Response(FacultyOnboardingApprovalSerializer(approvals, many=True).data, status=status.HTTP_200_OK)
+
+
+class BulkRejectFacultyOnboardingView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated, IsAdminRole]
+
+    def post(self, request, *args, **kwargs):
+        serializer = BulkApprovalActionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        approvals = FacultyApprovalService.bulk_reject(
+            faculty_ids=serializer.validated_data["ids"],
+            rejected_by=request.user,
+            remarks=serializer.validated_data.get("remarks", ""),
+        )
+        return Response(FacultyOnboardingApprovalSerializer(approvals, many=True).data, status=status.HTTP_200_OK)
+
+
 class StudentManualOnboardingView(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [permissions.IsAuthenticated, IsAdminRole]
@@ -279,11 +397,13 @@ class FacultyManualOnboardingView(APIView):
                 row_data=payload,
                 actor=request.user,
             )
+            if profile:
+                FacultyApprovalService.ensure_pending(faculty_profile=profile, requested_by=request.user)
         except Exception as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
         OnboardingAuditService.log(
-            action="FACULTY_MANUAL_ONBOARDED",
+            action="FACULTY_MANUAL_ONBOARDED_PENDING_APPROVAL",
             entity_type=TASK_ENTITY_FACULTY,
             entity_id=profile.id if profile else "",
             actor=request.user,
@@ -292,7 +412,7 @@ class FacultyManualOnboardingView(APIView):
 
         return Response(
             {
-                "message": "Faculty onboarded successfully",
+                "message": "Faculty onboarded and marked pending admin approval",
                 "faculty_id": profile.id if profile else None,
                 "employee_id": serializer.validated_data.get("employee_id"),
             },

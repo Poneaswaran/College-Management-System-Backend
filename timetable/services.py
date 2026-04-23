@@ -692,7 +692,7 @@ class TimetableExportService:
         dept = section.course.department
 
         university_name = tenant.name.upper()
-        school_name = (dept.school_name or tenant.name).upper()
+        school_name = (dept.get_school_name() or tenant.name).upper()
         dept_name = f"DEPARTMENT OF {dept.name.upper()}"
         
         # ── Fetch Meta Info (In-Charge, Room) ──────────────────────────────

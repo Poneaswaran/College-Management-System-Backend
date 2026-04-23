@@ -12,22 +12,37 @@ from django.core.exceptions import ObjectDoesNotExist
 # ACADEMIC STRUCTURE
 # ==================================================
 
-class Department(models.Model):
-    name = models.CharField(max_length=100, unique=True)
-    code = models.CharField(max_length=20, unique=True)  # CSE, ECE, MECH
-    school_name = models.CharField(
-        max_length=255,
-        blank=True,
-        help_text=(
-            "The school/faculty this department belongs to. "
-            "e.g. 'School of Engineering'. "
-            "If blank, falls back to the institution name."
-        ),
-    )
+class School(models.Model):
+    """
+    Represents a School/Faculty within the institution.
+    e.g. School of Engineering, School of Arts & Sciences
+    """
+    name = models.CharField(max_length=255, unique=True)
+    code = models.CharField(max_length=20, unique=True)   # SOE, SOAS, SMED
     is_active = models.BooleanField(default=True)
 
     def __str__(self):
         return self.name
+
+
+class Department(models.Model):
+    school = models.ForeignKey(
+        School,
+        on_delete=models.PROTECT,       # Don't accidentally delete a school with depts
+        related_name="departments",
+        null=True,                      # null=True only during migration transition
+        blank=True,
+    )
+    name = models.CharField(max_length=100, unique=True)
+    code = models.CharField(max_length=20, unique=True)   # CSE, ECE, MECH
+    is_active = models.BooleanField(default=True)
+
+    def __str__(self):
+        return self.name
+
+    def get_school_name(self):
+        """Fallback helper — returns school name or institution name."""
+        return self.school.name if self.school else "Institution"
 
 
 class Course(models.Model):

@@ -102,7 +102,8 @@ class SectionListView(APIView):
             'year': s.year,
             'course_id': s.course.id,
             'course_name': s.course.name,
-            'department_code': s.course.department.code
+            'department_code': s.course.department.code,
+            'school_name': s.course.department.get_school_name()
         } for s in sections]
         
         # ETag implementation
@@ -240,10 +241,11 @@ class AdminDepartmentCreateView(APIView):
 
         name = request.data.get('name')
         code = request.data.get('code')
+        school_id = request.data.get('school_id')
         if not name or not code:
             return Response({'error': 'name and code are required.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        result = AcademicStructureService.create_department(name, code)
+        result = AcademicStructureService.create_department(name, code, school_id)
         return Response(result, status=status.HTTP_201_CREATED if result['created'] else status.HTTP_200_OK)
 
 class AdminCourseCreateView(APIView):
@@ -448,8 +450,9 @@ class AdminDepartmentDetailView(APIView):
 
         name = request.data.get('name')
         code = request.data.get('code')
+        school_id = request.data.get('school_id')
         is_active = request.data.get('is_active')
-        result = AcademicStructureService.update_department(pk, name, code, is_active)
+        result = AcademicStructureService.update_department(pk, name, code, school_id, is_active)
         return Response(result if result['success'] else result, status=status.HTTP_200_OK if result['success'] else status.HTTP_404_NOT_FOUND)
 
     def delete(self, request, pk):

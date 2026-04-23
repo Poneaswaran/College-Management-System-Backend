@@ -6,12 +6,19 @@ from rest_framework.views import APIView
 from core.auth import JWTAuthentication
 from onboarding.services.id_card_service import IDCardService
 from onboarding.views.admin_views import (
+    ApproveFacultyOnboardingView,
     ApproveStudentOnboardingView,
+    BulkApproveFacultyOnboardingView,
+    BulkApproveStudentOnboardingView,
+    BulkRejectFacultyOnboardingView,
+    BulkRejectStudentOnboardingView,
     FacultyManualOnboardingView,
     GrantTemporaryOnboardingAccessView,
     OnboardingDraftDetailView,
     OnboardingDraftListCreateView,
+    PendingFacultyApprovalsView,
     PendingStudentApprovalsView,
+    RejectFacultyOnboardingView,
     RejectStudentOnboardingView,
     RetryFailedOnboardingTaskView,
     RevokeTemporaryOnboardingAccessView,
@@ -101,6 +108,41 @@ urlpatterns = [
         "admin/students/<int:student_id>/reject/",
         RejectStudentOnboardingView.as_view(),
         name="student_reject_onboarding",
+    ),
+    path(
+        "admin/students/bulk-approve/",
+        BulkApproveStudentOnboardingView.as_view(),
+        name="student_bulk_approve_onboarding",
+    ),
+    path(
+        "admin/students/bulk-reject/",
+        BulkRejectStudentOnboardingView.as_view(),
+        name="student_bulk_reject_onboarding",
+    ),
+    path(
+        "admin/faculty/pending-approvals/",
+        PendingFacultyApprovalsView.as_view(),
+        name="faculty_pending_approvals",
+    ),
+    path(
+        "admin/faculty/<int:faculty_id>/approve/",
+        ApproveFacultyOnboardingView.as_view(),
+        name="faculty_approve_onboarding",
+    ),
+    path(
+        "admin/faculty/<int:faculty_id>/reject/",
+        RejectFacultyOnboardingView.as_view(),
+        name="faculty_reject_onboarding",
+    ),
+    path(
+        "admin/faculty/bulk-approve/",
+        BulkApproveFacultyOnboardingView.as_view(),
+        name="faculty_bulk_approve_onboarding",
+    ),
+    path(
+        "admin/faculty/bulk-reject/",
+        BulkRejectFacultyOnboardingView.as_view(),
+        name="faculty_bulk_reject_onboarding",
     ),
     path(
         "admin/students/manual/",

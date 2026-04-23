@@ -15,6 +15,69 @@ from configuration.models import TimetableConfiguration
 
 
 # ==================================================
+# TIMETABLE GRID (AI CONFIGURATION)
+# ==================================================
+
+class TimetableGrid(models.Model):
+    """
+    Defines the daily schedule structure for a department (start/end times, periods, breaks).
+    """
+    department = models.ForeignKey(
+        Department,
+        on_delete=models.CASCADE,
+        related_name="timetable_grids"
+    )
+    academic_year = models.CharField(max_length=20, help_text='e.g. "2025-26"')
+    effective_from = models.DateField()
+    is_active = models.BooleanField(default=True)
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="created_timetable_grids"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-effective_from']
+        verbose_name = "Timetable Grid"
+        verbose_name_plural = "Timetable Grids"
+
+    def __str__(self):
+        return f"{self.department.code} Grid ({self.academic_year})"
+
+
+class PeriodSlot(models.Model):
+    """
+    Individual time slots within a TimetableGrid.
+    """
+    SLOT_TYPE_CHOICES = [
+        ('class', 'Class'),
+        ('lunch', 'Lunch'),
+        ('break', 'Break'),
+        ('free', 'Free'),
+    ]
+
+    grid = models.ForeignKey(
+        TimetableGrid,
+        on_delete=models.CASCADE,
+        related_name="slots"
+    )
+    slot_number = models.PositiveIntegerField(help_text="1, 2, 3...")
+    slot_type = models.CharField(max_length=10, choices=SLOT_TYPE_CHOICES)
+    start_time = models.TimeField()
+    end_time = models.TimeField()
+    label = models.CharField(max_length=50, help_text='e.g. "Period 1", "Lunch Break"')
+
+    class Meta:
+        ordering = ['grid', 'slot_number']
+        unique_together = ('grid', 'slot_number')
+        verbose_name = "Period Slot"
+        verbose_name_plural = "Period Slots"
+
+    def __str__(self):
+        return f"{self.grid} - {self.label} ({self.start_time.strftime('%H:%M')}-{self.end_time.strftime('%H:%M')})"
 # SUBJECT
 # ==================================================
 

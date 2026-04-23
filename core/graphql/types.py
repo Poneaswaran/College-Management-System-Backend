@@ -2,6 +2,7 @@ import strawberry
 from typing import Optional
 
 from core.models import (
+    School,
     Department,
     Course,
     Section,
@@ -15,10 +16,19 @@ from core.models import (
 # ==================================================
 
 @strawberry.type
+class SchoolType:
+    id: int
+    name: str
+    code: str
+    is_active: bool
+
+
+@strawberry.type
 class DepartmentType:
     id: int
     name: str
     code: str
+    school: Optional[SchoolType]
     is_active: bool
 
 

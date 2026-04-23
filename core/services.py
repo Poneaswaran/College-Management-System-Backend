@@ -6,8 +6,11 @@ from profile_management.models import AcademicYear, Semester
 
 class AcademicStructureService:
     @staticmethod
-    def create_department(name, code, is_active=True):
-        dept, created = Department.objects.get_or_create(code=code, defaults={'name': name, 'is_active': is_active})
+    def create_department(name, code, school_id=None, is_active=True):
+        defaults = {'name': name, 'is_active': is_active}
+        if school_id:
+            defaults['school_id'] = school_id
+        dept, created = Department.objects.get_or_create(code=code, defaults=defaults)
         return {'success': True, 'id': dept.id, 'created': created}
 
     @staticmethod
@@ -86,11 +89,12 @@ class AcademicStructureService:
             return {'success': False, 'error': str(e)}
 
     @staticmethod
-    def update_department(dept_id, name=None, code=None, is_active=None):
+    def update_department(dept_id, name=None, code=None, school_id=None, is_active=None):
         try:
             dept = Department.objects.get(id=dept_id)
             if name: dept.name = name
             if code: dept.code = code
+            if school_id is not None: dept.school_id = school_id
             if is_active is not None: dept.is_active = is_active
             dept.save()
             return {'success': True}
@@ -150,15 +154,24 @@ class AcademicStructureService:
 
     @staticmethod
     def get_departments():
-        return list(Department.objects.filter(is_active=True).values('id', 'name', 'code'))
+        return [
+            {
+                'id': d.id, 
+                'name': d.name, 
+                'code': d.code,
+                'school': {'id': d.school.id, 'name': d.school.name, 'code': d.school.code} if d.school else None
+            } 
+            for d in Department.objects.select_related('school').filter(is_active=True)
+        ]
 
     @staticmethod
     def get_courses():
         return [{
             'id': c.id, 'name': c.name, 'code': c.code,
             'department_name': c.department.name,
+            'school_name': c.department.get_school_name(),
             'duration_years': c.duration_years
-        } for c in Course.objects.select_related('department').all()]
+        } for c in Course.objects.select_related('department', 'department__school').all()]
 
     @staticmethod
     def get_academic_years(page=1, page_size=20, is_current=None):

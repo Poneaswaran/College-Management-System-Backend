@@ -41,8 +41,17 @@ from .views_ai import (
     ScheduleAuditView,
     ExplainWhyNotView,
 )
+from rest_framework.routers import DefaultRouter
+from .grid_views import TimetableGridViewSet
+from .views_ai import GridAIChatView
+
+router = DefaultRouter()
+router.register(r'grid', TimetableGridViewSet, basename='timetable-grid')
 
 urlpatterns = [
+    # ── Grid & Grid AI ────────────────────────────────────────────────────
+    path('admin/ai-chat/', GridAIChatView.as_view(), name='grid-ai-chat'),
+    
     # ── Period definitions ────────────────────────────────────────────────
     path('periods/', PeriodDefinitionListView.as_view(), name='period-definition-list'),
 
@@ -100,4 +109,4 @@ urlpatterns = [
     path('ai/chat/', TimetableChatView.as_view(), name='ai-chat'),
     path('ai/audit/', ScheduleAuditView.as_view(), name='ai-audit'),
     path('ai/explain-why-not/', ExplainWhyNotView.as_view(), name='ai-explain-why-not'),
-]
+] + router.urls

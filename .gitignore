@@ -10,7 +10,7 @@ venv/
 .venv/
 env/
 ENV/
-
+chroma_db/
 # Django stuff
 *.log
 local_settings.py
