@@ -29,9 +29,7 @@ class Department(models.Model):
     school = models.ForeignKey(
         School,
         on_delete=models.PROTECT,       # Don't accidentally delete a school with depts
-        related_name="departments",
-        null=True,                      # null=True only during migration transition
-        blank=True,
+        related_name="departments"
     )
     name = models.CharField(max_length=100, unique=True)
     code = models.CharField(max_length=20, unique=True)   # CSE, ECE, MECH

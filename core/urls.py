@@ -2,7 +2,7 @@ from django.urls import path
 from .views import (
     AssignPermissionAPIView, FilterOptionsAPIView, SectionListView,
     AdminDepartmentCreateView, AdminCourseCreateView, AdminSectionCreateView, AdminAcademicYearCreateView, AdminSemesterCreateView,
-    DepartmentListView, CourseListView, AcademicYearListView, SemesterListView,
+    DepartmentListView, CourseListView, AcademicYearListView, SemesterListView, SchoolListView,
     AdminDepartmentDetailView, AdminCourseDetailView, AdminSectionDetailView
 )
 
@@ -10,6 +10,7 @@ urlpatterns = [
     path('roles/permissions/assign/', AssignPermissionAPIView.as_view(), name='assign-role-permissions'),
     path('filters/', FilterOptionsAPIView.as_view(), name='core-filters'),
     path('sections/', SectionListView.as_view(), name='academic-section-list'),
+    path('schools/', SchoolListView.as_view(), name='academic-school-list'),
     path('departments/', DepartmentListView.as_view(), name='academic-dept-list'),
     path('courses/', CourseListView.as_view(), name='academic-course-list'),
     path('academic-years/', AcademicYearListView.as_view(), name='academic-year-list'),

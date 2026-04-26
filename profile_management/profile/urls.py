@@ -15,10 +15,18 @@ from .views import (
     StudentListView,
     StudentProfileDetailView,
     StudentProfilePhotoUpdateView,
+    StudentIDCardPDFView,
+    FacultyIDCardPDFView,
+    BulkIDCardPDFView,
+    IDCardTemplateView,
+    IDCardTemplateResetView,
 )
 
 urlpatterns = [
     path("students/", StudentListView.as_view(), name="profile-students"),
+    path("id-cards/bulk-generate/", BulkIDCardPDFView.as_view(), name="profile-bulk-id-card"),
+    path("students/<str:register_number>/id-card/", StudentIDCardPDFView.as_view(), name="profile-student-id-card"),
+    path("faculty/<int:faculty_id>/id-card/", FacultyIDCardPDFView.as_view(), name="profile-faculty-id-card"),
     path("students/<str:register_number>/", StudentProfileDetailView.as_view(), name="profile-student-detail"),
     path(
         "students/<str:register_number>/photo/",
@@ -52,4 +60,6 @@ urlpatterns = [
     path("hod/faculty-list/", HODFacultyListView.as_view(), name="profile-hod-faculty-list"),
     path("parents/request-otp/", ParentRequestOtpView.as_view(), name="profile-parent-request-otp"),
     path("parents/verify-otp/", ParentVerifyOtpView.as_view(), name="profile-parent-verify-otp"),
+    path("id-card-template/", IDCardTemplateView.as_view(), name="profile-id-card-template"),
+    path("id-card-template/reset/", IDCardTemplateResetView.as_view(), name="profile-id-card-template-reset"),
 ]

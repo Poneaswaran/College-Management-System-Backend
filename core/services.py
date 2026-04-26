@@ -6,10 +6,10 @@ from profile_management.models import AcademicYear, Semester
 
 class AcademicStructureService:
     @staticmethod
-    def create_department(name, code, school_id=None, is_active=True):
-        defaults = {'name': name, 'is_active': is_active}
-        if school_id:
-            defaults['school_id'] = school_id
+    def create_department(name, code, school_id, is_active=True):
+        if not school_id:
+            return {'success': False, 'error': 'school_id is required.'}
+        defaults = {'name': name, 'is_active': is_active, 'school_id': school_id}
         dept, created = Department.objects.get_or_create(code=code, defaults=defaults)
         return {'success': True, 'id': dept.id, 'created': created}
 
@@ -153,7 +153,10 @@ class AcademicStructureService:
             return {'success': False, 'error': 'Section not found.'}
 
     @staticmethod
-    def get_departments():
+    def get_departments(school_id=None):
+        qs = Department.objects.select_related('school').filter(is_active=True)
+        if school_id:
+            qs = qs.filter(school_id=school_id)
         return [
             {
                 'id': d.id, 
@@ -161,7 +164,19 @@ class AcademicStructureService:
                 'code': d.code,
                 'school': {'id': d.school.id, 'name': d.school.name, 'code': d.school.code} if d.school else None
             } 
-            for d in Department.objects.select_related('school').filter(is_active=True)
+            for d in qs
+        ]
+
+    @staticmethod
+    def get_schools():
+        return [
+            {
+                'id': s.id,
+                'name': s.name,
+                'code': s.code,
+                'is_active': s.is_active
+            }
+            for s in School.objects.filter(is_active=True)
         ]
 
     @staticmethod

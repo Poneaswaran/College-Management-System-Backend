@@ -28,6 +28,9 @@ from .views import (
     DepartmentCombinePolicyDetailView,
     CombinedClassSessionListCreateView,
     CombinedClassSessionDetailView,
+    HODCoursesListView,
+    HODFacultyWorkloadView,
+    HODCurriculumView,
 )
 from .views_ai import (
     TimetableStateView,
@@ -92,6 +95,9 @@ urlpatterns = [
     # ── HOD Timetable Approval Workflow ───────────────────────────────────
     path('hod/approval-requests/', HODTimetableApprovalRequestListView.as_view(), name='hod-approval-request-list'),
     path('hod/approval-requests/<int:pk>/status/', HODTimetableApprovalRequestStatusUpdateView.as_view(), name='hod-approval-request-status-update'),
+    path('hod/courses/', HODCoursesListView.as_view(), name='hod-courses-list'),
+    path('hod/faculty-workload/', HODFacultyWorkloadView.as_view(), name='hod-faculty-workload'),
+    path('hod/curriculum/', HODCurriculumView.as_view(), name='hod-curriculum'),
 
     # ── AI Timetable Copilot ──────────────────────────────────────────────
     # Read endpoints — expose timetable state to the AI

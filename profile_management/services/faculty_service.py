@@ -23,11 +23,13 @@ class FacultyProfileService:
             return None
 
     @staticmethod
-    def list_faculties(user=None, department_id=None, designation=None, is_active=True):
+    def list_faculties(user=None, department_id=None, designation=None, is_active=True, school_id=None):
         qs = FacultyProfile.objects.select_related("user", "department")
         qs = TenantService.apply_department_scope(qs, user=user, field_name="department")
         if is_active is not None:
             qs = qs.filter(is_active=is_active)
+        if school_id:
+            qs = qs.filter(department__school_id=school_id)
         if department_id:
             qs = qs.filter(department_id=department_id)
         if designation:
@@ -35,7 +37,7 @@ class FacultyProfileService:
         return qs
 
     @staticmethod
-    def hod_faculty_list(user, search=None, designation=None, is_active=None, page=1, page_size=10):
+    def hod_faculty_list(user, search=None, designation=None, is_active=None, page=1, page_size=10, department_id=None, school_id=None):
         if user.role.code not in ("HOD", "ADMIN"):
             return None
 
@@ -43,6 +45,8 @@ class FacultyProfileService:
             user=user,
             designation=designation,
             is_active=is_active,
+            department_id=department_id,
+            school_id=school_id,
         )
 
         if search:
@@ -74,6 +78,7 @@ class FacultyProfileService:
                 "office_hours": faculty.office_hours,
                 "teaching_load": faculty.teaching_load,
                 "is_active": faculty.is_active,
+                "profile_photo": faculty.profile_photo.url if faculty.profile_photo else None,
             }
             for faculty in faculty_page
         ]

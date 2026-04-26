@@ -85,7 +85,24 @@ class FilterOptionsAPIView(APIView):
         response['ETag'] = f'"{etag}"'
         return response
 
-from core.models import User, Section
+from core.models import User, Section, School
+
+
+class SchoolListView(APIView):
+    """
+    API to list all active schools.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        data = AcademicStructureService.get_schools()
+        etag = generate_etag(data)
+        if check_etag(request, etag):
+            return Response(status=status.HTTP_304_NOT_MODIFIED)
+        response = Response({'schools': data})
+        response['ETag'] = f'"{etag}"'
+        return response
+
 
 class SectionListView(APIView):
     """
@@ -118,11 +135,19 @@ class SectionListView(APIView):
 class DepartmentListView(APIView):
     """
     API to list all active departments.
+    Optional query param: school_id
     """
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        data = AcademicStructureService.get_departments()
+        school_id = request.query_params.get('school_id')
+        if school_id:
+            try:
+                school_id = int(school_id)
+            except (TypeError, ValueError):
+                return Response({'error': 'school_id must be an integer.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        data = AcademicStructureService.get_departments(school_id=school_id)
         etag = generate_etag(data)
         if check_etag(request, etag):
             return Response(status=status.HTTP_304_NOT_MODIFIED)
@@ -231,7 +256,7 @@ from core.models import Department, Course
 class AdminDepartmentCreateView(APIView):
     """
     API for admin to create a new department.
-    Sample payload: {"name": "Physics", "code": "PHY"}
+    Sample payload: {"name": "Physics", "code": "PHY", "school_id": 1}
     """
     permission_classes = [IsAuthenticated]
 
@@ -246,7 +271,10 @@ class AdminDepartmentCreateView(APIView):
             return Response({'error': 'name and code are required.'}, status=status.HTTP_400_BAD_REQUEST)
 
         result = AcademicStructureService.create_department(name, code, school_id)
-        return Response(result, status=status.HTTP_201_CREATED if result['created'] else status.HTTP_200_OK)
+        if not result['success']:
+            return Response(result, status=status.HTTP_400_BAD_REQUEST)
+            
+        return Response(result, status=status.HTTP_201_CREATED if result.get('created') else status.HTTP_200_OK)
 
 class AdminCourseCreateView(APIView):
     """

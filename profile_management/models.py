@@ -228,9 +228,7 @@ class FacultyProfile(models.Model):
     last_name = models.CharField(max_length=100, null=True, blank=True)
     department = models.ForeignKey(
         'core.Department',
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
+        on_delete=models.PROTECT,
         related_name="faculties"
     )
     designation = models.CharField(max_length=100, help_text="e.g., Assistant Professor, HOD")
@@ -353,3 +351,83 @@ class ParentLoginOTP(models.Model):
 
     def __str__(self):
         return f"OTP for {self.student.register_number} -> {self.code} ({'used' if self.used else 'active'})"
+
+
+# ==================================================
+# ID CARD TEMPLATE (per-tenant color configuration)
+# No JSON fields — each color stored as a separate CharField.
+# ==================================================
+
+class IDCardTemplate(models.Model):
+    """
+    Stores the colour palette for generated ID cards.
+    One row per tenant (enforced by the unique name field).
+    Admin saves preferred colours here; the PDF service reads them.
+    """
+
+    # A single, sentinel name so admins can only ever create one record
+    name = models.CharField(
+        max_length=50,
+        default="default",
+        unique=True,
+        editable=False,
+        help_text="Internal sentinel — always 'default'. Do not change.",
+    )
+
+    # ── Student card colours ──────────────────────────────────────────────────
+    student_primary_color = models.CharField(
+        max_length=7, default="#2563eb",
+        help_text="Hex colour for student card header & accents (e.g. #2563eb)"
+    )
+    student_header_text_color = models.CharField(
+        max_length=7, default="#ffffff",
+        help_text="Hex colour for text inside the student card header"
+    )
+    student_background_color = models.CharField(
+        max_length=7, default="#f8fafc",
+        help_text="Hex colour for the student card background"
+    )
+    student_text_color = models.CharField(
+        max_length=7, default="#111827",
+        help_text="Hex colour for main body text on student cards"
+    )
+    student_label_color = models.CharField(
+        max_length=7, default="#6b7280",
+        help_text="Hex colour for field labels (e.g. REG NO, DEPT)"
+    )
+
+    # ── Faculty card colours ──────────────────────────────────────────────────
+    faculty_primary_color = models.CharField(
+        max_length=7, default="#059669",
+        help_text="Hex colour for faculty card header & accents (e.g. #059669)"
+    )
+    faculty_header_text_color = models.CharField(
+        max_length=7, default="#ffffff",
+        help_text="Hex colour for text inside the faculty card header"
+    )
+    faculty_background_color = models.CharField(
+        max_length=7, default="#f8fafc",
+        help_text="Hex colour for the faculty card background"
+    )
+    faculty_text_color = models.CharField(
+        max_length=7, default="#111827",
+        help_text="Hex colour for main body text on faculty cards"
+    )
+    faculty_label_color = models.CharField(
+        max_length=7, default="#6b7280",
+        help_text="Hex colour for field labels on faculty cards"
+    )
+
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "ID Card Template"
+        verbose_name_plural = "ID Card Templates"
+
+    def __str__(self):
+        return "ID Card Colour Template"
+
+    @classmethod
+    def get_or_create_default(cls):
+        obj, _ = cls.objects.get_or_create(name="default")
+        return obj

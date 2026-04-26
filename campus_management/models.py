@@ -3,11 +3,11 @@ from django.core.exceptions import ValidationError
 
 
 def _build_check_constraint(*, expression, name):
-    """Support both Django signatures: CheckConstraint(check=...) and condition=...."""
+    """Robustly create CheckConstraint supporting both 'check' and 'condition' arguments."""
     try:
-        return models.CheckConstraint(condition=expression, name=name)
-    except TypeError:
         return models.CheckConstraint(check=expression, name=name)
+    except TypeError:
+        return models.CheckConstraint(condition=expression, name=name)
 
 class Building(models.Model):
     name = models.CharField(max_length=255)

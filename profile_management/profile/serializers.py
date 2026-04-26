@@ -1,6 +1,12 @@
 from rest_framework import serializers
 
-from profile_management.models import FacultyProfile, StudentProfile
+from profile_management.models import FacultyProfile, StudentProfile, IDCardTemplate
+
+
+class IDCardTemplateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = IDCardTemplate
+        fields = "__all__"
 
 
 class StudentProfileSerializer(serializers.ModelSerializer):
@@ -35,7 +41,10 @@ class StudentProfileSerializer(serializers.ModelSerializer):
             "profile_completed",
             "current_gpa",
             "updated_at",
+            "department_name",
         ]
+
+    department_name = serializers.CharField(source="department.name", read_only=True)
 
 
 class StudentProfileUpdateSerializer(serializers.Serializer):
@@ -105,6 +114,8 @@ class HODFacultyListQuerySerializer(serializers.Serializer):
     search = serializers.CharField(required=False, allow_blank=False)
     designation = serializers.CharField(required=False, allow_blank=False)
     is_active = serializers.BooleanField(required=False)
+    school_id = serializers.IntegerField(required=False)
+    department_id = serializers.IntegerField(required=False)
     page = serializers.IntegerField(required=False, min_value=1, default=1)
     page_size = serializers.IntegerField(required=False, min_value=1, max_value=100, default=10)
 
@@ -122,6 +133,7 @@ class HODFacultyListItemSerializer(serializers.Serializer):
     office_hours = serializers.CharField(allow_blank=True)
     teaching_load = serializers.IntegerField()
     is_active = serializers.BooleanField()
+    profile_photo = serializers.ImageField(read_only=True)
 
 
 class HODFacultyListResponseSerializer(serializers.Serializer):
