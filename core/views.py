@@ -85,6 +85,191 @@ class FilterOptionsAPIView(APIView):
         response['ETag'] = f'"{etag}"'
         return response
 
+
+class AcademicFiltersAPIView(APIView):
+    """
+    Unified academic-structure filter endpoint.
+
+    GET /api/core/academic-filters/
+
+    Query params:
+      school_id    (int) — limit departments/courses/sections to this school
+      department_id (int) — limit courses/sections to this department
+      course_id    (int) — limit sections to this course
+      include      (str) — comma-separated list of resources to include.
+                           Allowed values: schools, departments, courses, sections
+                           Default: schools,departments (if no school_id)
+                                    departments,courses,sections (if school_id given)
+
+    Response shape:
+    {
+        "schools":     [ {id, name, code, department_count}, ... ],
+        "departments": [ {id, name, code, school_id, school_name, course_count}, ... ],
+        "courses":     [ {id, name, code, department_id, department_name, duration_years}, ... ],
+        "sections":    [ {id, name, code, year, course_id, course_name, department_id, department_name}, ... ]
+    }
+
+    Only the requested resources are returned in the response. Any resource not in
+    `include` is omitted, keeping payloads small.
+    """
+    permission_classes = [IsAuthenticated]
+
+    # ---------- helpers ----------
+
+    @staticmethod
+    def _parse_int(request, key):
+        val = request.query_params.get(key)
+        if val in (None, ''):
+            return None
+        try:
+            return int(val)
+        except (TypeError, ValueError):
+            return None
+
+    # ---------- data fetchers ----------
+
+    @staticmethod
+    def _schools(department_count_map):
+        from core.models import School
+        qs = School.objects.filter(is_active=True).order_by('name')
+        return [
+            {
+                'id': s.id,
+                'name': s.name,
+                'code': s.code,
+                'department_count': department_count_map.get(s.id, 0),
+            }
+            for s in qs
+        ]
+
+    @staticmethod
+    def _departments(school_id=None):
+        from core.models import Department
+        qs = Department.objects.select_related('school').filter(is_active=True).order_by('name')
+        if school_id:
+            qs = qs.filter(school_id=school_id)
+        return [
+            {
+                'id': d.id,
+                'name': d.name,
+                'code': d.code,
+                'school_id': d.school_id,
+                'school_name': d.school.name if d.school else None,
+            }
+            for d in qs
+        ]
+
+    @staticmethod
+    def _courses(school_id=None, department_id=None):
+        from core.models import Course
+        qs = Course.objects.select_related('department', 'department__school').order_by('name')
+        if department_id:
+            qs = qs.filter(department_id=department_id)
+        elif school_id:
+            qs = qs.filter(department__school_id=school_id)
+        return [
+            {
+                'id': c.id,
+                'name': c.name,
+                'code': c.code,
+                'duration_years': c.duration_years,
+                'department_id': c.department_id,
+                'department_name': c.department.name,
+            }
+            for c in qs
+        ]
+
+    @staticmethod
+    def _sections(school_id=None, department_id=None, course_id=None):
+        from core.models import Section
+        qs = Section.objects.select_related(
+            'course', 'course__department', 'course__department__school'
+        ).order_by('course__department__name', 'year', 'name')
+        if course_id:
+            qs = qs.filter(course_id=course_id)
+        elif department_id:
+            qs = qs.filter(course__department_id=department_id)
+        elif school_id:
+            qs = qs.filter(course__department__school_id=school_id)
+        return [
+            {
+                'id': s.id,
+                'name': s.name,
+                'code': s.code,
+                'year': s.year,
+                'course_id': s.course_id,
+                'course_name': s.course.name,
+                'department_id': s.course.department_id,
+                'department_name': s.course.department.name,
+            }
+            for s in qs
+        ]
+
+    # ---------- main handler ----------
+
+    def get(self, request):
+        school_id     = self._parse_int(request, 'school_id')
+        department_id = self._parse_int(request, 'department_id')
+        course_id     = self._parse_int(request, 'course_id')
+
+        # Determine which resources to include
+        include_param = request.query_params.get('include', '')
+        if include_param:
+            include = {r.strip() for r in include_param.split(',') if r.strip()}
+        else:
+            # Sensible defaults based on which filter is active
+            if course_id:
+                include = {'sections'}
+            elif department_id:
+                include = {'courses', 'sections'}
+            elif school_id:
+                include = {'departments', 'courses', 'sections'}
+            else:
+                include = {'schools', 'departments'}
+
+        allowed = {'schools', 'departments', 'courses', 'sections'}
+        invalid = include - allowed
+        if invalid:
+            return Response(
+                {'error': f"Invalid include values: {', '.join(invalid)}. Allowed: {', '.join(allowed)}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        result = {}
+
+        if 'schools' in include:
+            # Pre-compute dept counts per school in one query
+            from core.models import Department
+            from django.db.models import Count
+            dept_counts = {
+                row['school_id']: row['count']
+                for row in Department.objects.filter(is_active=True)
+                                             .values('school_id')
+                                             .annotate(count=Count('id'))
+            }
+            result['schools'] = self._schools(dept_counts)
+
+        if 'departments' in include:
+            result['departments'] = self._departments(school_id=school_id)
+
+        if 'courses' in include:
+            result['courses'] = self._courses(school_id=school_id, department_id=department_id)
+
+        if 'sections' in include:
+            result['sections'] = self._sections(
+                school_id=school_id,
+                department_id=department_id,
+                course_id=course_id,
+            )
+
+        etag = generate_etag(result)
+        if check_etag(request, etag):
+            return Response(status=status.HTTP_304_NOT_MODIFIED)
+
+        response = Response(result)
+        response['ETag'] = f'"{etag}"'
+        return response
+
 from core.models import User, Section, School
 
 

@@ -1,5 +1,6 @@
 import io
 import qrcode
+from django.db import connection
 from django.http import HttpResponse
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import landscape
@@ -45,7 +46,14 @@ class IDCardService:
             "label":       tpl.faculty_label_color,
         }
 
-    # ─── Public API ───────────────────────────────────────────────────────────
+    @staticmethod
+    def _institution_name() -> str:
+        """Return the current tenant's full institution name."""
+        try:
+            return connection.tenant.name or "COLLEGE MANAGEMENT SYSTEM"
+        except Exception:
+            return "COLLEGE MANAGEMENT SYSTEM"
+
 
     @staticmethod
     def generate_student_pdf(student, orientation='landscape'):
@@ -124,7 +132,7 @@ class IDCardService:
         c.setFillColor(primary)
         c.rect(0, height - header_h, width, header_h, fill=1, stroke=0)
         c.setFillColor(colors.HexColor(clr["header_text"]))
-        inst_name = getattr(profile, 'institution_name', 'COLLEGE MANAGEMENT SYSTEM')
+        inst_name = IDCardService._institution_name()
         c.setFont("Helvetica-Bold", 8)
         c.drawCentredString(width/2, height - 7*mm, str(inst_name)[:40].upper())
         c.setFont("Helvetica", 5.5)

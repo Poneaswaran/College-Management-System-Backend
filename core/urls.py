@@ -3,7 +3,8 @@ from .views import (
     AssignPermissionAPIView, FilterOptionsAPIView, SectionListView,
     AdminDepartmentCreateView, AdminCourseCreateView, AdminSectionCreateView, AdminAcademicYearCreateView, AdminSemesterCreateView,
     DepartmentListView, CourseListView, AcademicYearListView, SemesterListView, SchoolListView,
-    AdminDepartmentDetailView, AdminCourseDetailView, AdminSectionDetailView
+    AdminDepartmentDetailView, AdminCourseDetailView, AdminSectionDetailView,
+    AcademicFiltersAPIView,
 )
 
 urlpatterns = [
@@ -23,4 +24,5 @@ urlpatterns = [
     path('admin/sections/create/', AdminSectionCreateView.as_view(), name='admin-section-create'),
     path('admin/sections/<int:pk>/', AdminSectionDetailView.as_view(), name='admin-section-detail'),
     path('admin/semesters/create/', AdminSemesterCreateView.as_view(), name='admin-semester-create'),
+    path('academic-filters/', AcademicFiltersAPIView.as_view(), name='academic-filters'),
 ]
