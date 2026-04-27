@@ -33,3 +33,4 @@ strawberry-graphql-django==0.74.2
 setuptools<81
 typing_extensions==4.15.0
 tzdata==2025.3
+httpx

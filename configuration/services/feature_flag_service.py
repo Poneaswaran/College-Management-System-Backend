@@ -13,6 +13,8 @@ KNOWN_FLAGS = [
     "leave_approval",
     "grade_submission",
     "study_materials",
+    "hod_courses",
+    "hod_curriculum",
 ]
 class FeatureFlagService:
     @staticmethod

@@ -2,6 +2,18 @@
 """Django's command-line utility for administrative tasks."""
 import os
 import sys
+from pathlib import Path
+
+# Load environment variables from .env file
+try:
+    from decouple import config
+    # Manually populate os.environ from .env using decouple
+    for key in ['DB_NAME', 'DB_USER', 'DB_PASSWORD', 'DB_HOST', 'DB_PORT']:
+        val = config(key, default=None)
+        if val:
+            os.environ[key] = val
+except ImportError:
+    pass
 
 
 def main():

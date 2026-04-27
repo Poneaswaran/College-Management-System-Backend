@@ -57,9 +57,11 @@ class StudentProfileService:
         return StudentProfileService.base_queryset(user=user).filter(register_number=register_number).first()
 
     @staticmethod
-    def list_profiles(user=None, department_id=None, course_id=None, year=None, academic_status=None):
+    def list_profiles(user=None, department_id=None, course_id=None, year=None, academic_status=None, school_id=None):
         qs = StudentProfileService.base_queryset(user=user)
 
+        if school_id:
+            qs = qs.filter(department__school_id=school_id)
         if department_id:
             qs = qs.filter(department_id=department_id)
         if course_id:

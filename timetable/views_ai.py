@@ -52,6 +52,34 @@ AI_HEADERS  = {
 }
 
 
+def get_user_context(request):
+    """
+    Builds a standard context object from the authenticated user
+    for the AI service to use in RAG filtering and memory scoping.
+    """
+    user = request.user
+    role_code = "GUEST"
+    department_id = None
+    
+    if user.is_authenticated:
+        if hasattr(user, "role") and user.role:
+            role_code = user.role.code
+        if hasattr(user, "department") and user.department:
+            department_id = user.department.id
+            
+    # Tenant identification for multi-tenant support
+    tenant_id = None
+    tenant = getattr(request, "tenant", None)
+    if tenant and hasattr(tenant, "id"):
+        tenant_id = tenant.id
+        
+    return {
+        "role": role_code,
+        "department_id": str(department_id) if department_id else None,
+        "tenant_id": str(tenant_id) if tenant_id else None
+    }
+
+
 # ─── Timetable State Snapshot ──────────────────────────────────────────────────
 
 class TimetableStateView(View):
@@ -554,6 +582,7 @@ class TimetableChatView(View):
             "semester_id": semester_id,
             "timetable_state": timetable_state,
             "history": history,
+            "user_context": get_user_context(request),
         }
 
         try:
@@ -621,6 +650,7 @@ class ScheduleAuditView(View):
         payload = {
             "audit_type": "soft_preferences",
             "timetable_state": state_json,
+            "user_context": get_user_context(request),
         }
 
         try:
@@ -938,6 +968,7 @@ class ExplainWhyNotView(View):
             "timetable_state": timetable_state,
             "diagnostic_context": diagnostic_context,
             "history": history,
+            "user_context": get_user_context(request),
         }
 
         try:
@@ -1007,7 +1038,8 @@ class ExplainConflictView(View):
             "message": error_msg,
             "semester_id": semester_id,
             "timetable_state": state_json,
-            "error_messages": [error_msg]
+            "error_messages": [error_msg],
+            "user_context": get_user_context(request),
         }
 
         try:
@@ -1029,4 +1061,134 @@ class ExplainConflictView(View):
                 {"error": "AI service is unreachable."},
                 status=503,
             )
+
+
+# ─── Grid AI Chat Proxy ────────────────────────────────────────────────────────
+
+@method_decorator(csrf_exempt, name="dispatch")
+class GridAIChatView(View):
+    """
+    POST /timetable/admin/ai-chat/
+    
+    Proxies to the FastAPI AI service endpoint /timetable/grid-chat
+    to handle the conversational state machine for grid generation.
+    """
+    def post(self, request):
+        try:
+            body = json.loads(request.body)
+        except json.JSONDecodeError:
+            return JsonResponse({"error": "Invalid JSON body."}, status=400)
+
+        session_id = body.get("session_id")
+        message = body.get("message", "").strip()
+        department_id = body.get("department_id")
+
+        if not session_id or not message or not department_id:
+            return JsonResponse({"error": "session_id, message, and department_id are required."}, status=400)
+
+        # Get department name for context
+        try:
+            from core.models import Department
+            department = Department.objects.get(pk=department_id)
+            department_name = department.name
+        except:
+            department_name = f"Department {department_id}"
+
+        # Maintain state in Django cache
+        from django.core.cache import cache
+        cache_key = f"grid_ai_chat_{session_id}"
+        session = cache.get(cache_key)
+
+        if not session:
+            session = {
+                "department_id": department_id,
+                "state": "collecting",
+                "collected": {
+                    "day_start": None,
+                    "day_end": None,
+                    "lunch_start": None,
+                    "lunch_duration_mins": None,
+                    "period_duration_mins": None,
+                    "num_periods": None,
+                    "short_breaks": []
+                },
+                "history": []
+            }
+
+        if session['state'] == 'complete':
+            return JsonResponse({"reply": "Configuration already complete.", "state": "complete", "resolved_grid": session.get('resolved_grid')})
+
+        # Add user message to history
+        session['history'].append({"role": "user", "parts": [{"text": message}]})
+
+        payload = {
+            "message": message,
+            "session_id": session_id,
+            "department_name": department_name,
+            "collected_fields": session["collected"],
+            "history": session["history"],
+            "user_context": get_user_context(request),
+        }
+
+        try:
+            with httpx.Client(timeout=60.0) as client:
+                response = client.post(
+                    f"{AI_BASE_URL}/timetable/grid-chat",
+                    json=payload,
+                    headers=AI_HEADERS,
+                )
+                response.raise_for_status()
+                
+                data = response.json()
+                
+                # Add assistant reply to history
+                reply_text = data.get("reply", "")
+                session['history'].append({"role": "model", "parts": [{"text": reply_text}]})
+                
+                # Update collected fields if AI provided incremental updates
+                if data.get("updated_fields"):
+                    session['collected'].update(data["updated_fields"])
+                
+                # Check if it's complete, if so validate the resolved_grid
+                if data.get("state") == "complete" and data.get("resolved_grid"):
+                    from timetable.grid_serializers import TimetableGridSerializer
+                    grid_data = data.get("resolved_grid")
+                    grid_data["department"] = department_id
+                    
+                    if "academic_year" not in grid_data:
+                        grid_data["academic_year"] = "2025-26"
+                    if "effective_from" not in grid_data:
+                        from datetime import date
+                        grid_data["effective_from"] = date.today().isoformat()
+                        
+                    serializer = TimetableGridSerializer(data=grid_data)
+                    if not serializer.is_valid():
+                        data["reply"] += "\n\nBackend Validation Error: " + json.dumps(serializer.errors)
+                        data["state"] = "confirming" 
+                        data["resolved_grid"] = None
+                        session['state'] = "confirming"
+                    else:
+                        data["resolved_grid"] = grid_data
+                        session['state'] = "complete"
+                        session['resolved_grid'] = grid_data
+                else:
+                    session['state'] = data.get("state", "collecting")
+                    
+                # Save session back to cache (1 hour expiry)
+                cache.set(cache_key, session, timeout=3600)
+
+                return JsonResponse(data, safe=False)
+        except httpx.HTTPStatusError as exc:
+            logger.error("AI service returned error: %s", exc.response.text)
+            return JsonResponse(
+                {"error": "AI service error.", "detail": exc.response.text},
+                status=exc.response.status_code,
+            )
+        except httpx.RequestError as exc:
+            logger.error("AI service unreachable: %s", exc)
+            return JsonResponse(
+                {"error": "AI service is unreachable. Is the FastAPI server running?"},
+                status=503,
+            )
+
 

@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from onboarding.models import OnboardingDraft, StudentOnboardingApproval, TemporaryOnboardingAccess
+from onboarding.models import OnboardingDraft, StudentOnboardingApproval, FacultyOnboardingApproval, TemporaryOnboardingAccess
 
 
 class TemporaryAccessGrantSerializer(serializers.Serializer):
@@ -16,6 +16,15 @@ class TemporaryAccessRevokeSerializer(serializers.Serializer):
 
 
 class StudentApprovalActionSerializer(serializers.Serializer):
+    remarks = serializers.CharField(required=False, allow_blank=True, default="")
+
+
+class FacultyApprovalActionSerializer(serializers.Serializer):
+    remarks = serializers.CharField(required=False, allow_blank=True, default="")
+
+
+class BulkApprovalActionSerializer(serializers.Serializer):
+    ids = serializers.ListField(child=serializers.IntegerField())
     remarks = serializers.CharField(required=False, allow_blank=True, default="")
 
 
@@ -38,6 +47,32 @@ class StudentOnboardingApprovalSerializer(serializers.ModelSerializer):
             "approved_at",
             "rejected_at",
         ]
+
+
+class FacultyOnboardingApprovalSerializer(serializers.ModelSerializer):
+    faculty_id = serializers.IntegerField(source="faculty_profile.id", read_only=True)
+    employee_id = serializers.SerializerMethodField(read_only=True)
+    faculty_name = serializers.CharField(source="faculty_profile.full_name", read_only=True)
+
+    class Meta:
+        model = FacultyOnboardingApproval
+        fields = [
+            "id",
+            "faculty_id",
+            "employee_id",
+            "faculty_name",
+            "status",
+            "remarks",
+            "created_at",
+            "updated_at",
+            "approved_at",
+            "rejected_at",
+        ]
+
+    def get_employee_id(self, obj):
+        from onboarding.models import FacultyOnboardingRecord
+        record = FacultyOnboardingRecord.objects.filter(faculty_profile=obj.faculty_profile).first()
+        return record.employee_id if record else "UNKNOWN"
 
 
 class StudentManualOnboardingSerializer(serializers.Serializer):

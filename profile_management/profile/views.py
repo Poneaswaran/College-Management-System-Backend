@@ -1,9 +1,12 @@
+import io
+from reportlab.pdfgen import canvas
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from core.auth import JWTAuthentication
-from profile_management.services import FacultyProfileService, ParentAuthService, StudentProfileService
+from profile_management.models import FacultyProfile, StudentProfile, IDCardTemplate
+from profile_management.services import FacultyProfileService, ParentAuthService, StudentProfileService, IDCardService
 
 from .etag_mixin import ETagMixin
 from .serializers import (
@@ -11,6 +14,7 @@ from .serializers import (
     FacultyProfileUpdateSerializer,
     HODFacultyListQuerySerializer,
     HODFacultyListResponseSerializer,
+    IDCardTemplateSerializer,
     ParentOtpRequestSerializer,
     ParentOtpVerifySerializer,
     StudentAdminUpdateSerializer,
@@ -100,6 +104,7 @@ class StudentListView(ETagMixin, generics.ListAPIView):
         params = self.request.query_params
         return StudentProfileService.list_profiles(
             user=self.request.user,
+            school_id=params.get("school_id"),
             department_id=params.get("department_id"),
             course_id=params.get("course_id"),
             year=params.get("year"),
@@ -226,6 +231,8 @@ class HODFacultyListView(ETagMixin, APIView):
             search=validated.get("search"),
             designation=validated.get("designation"),
             is_active=validated.get("is_active"),
+            school_id=validated.get("school_id"),
+            department_id=validated.get("department_id"),
             page=validated.get("page", 1),
             page_size=validated.get("page_size", 10),
         )
@@ -274,3 +281,127 @@ class ParentVerifyOtpView(APIView):
                 "message": payload["message"],
             }
         )
+
+
+from django.http import HttpResponse
+
+
+class StudentIDCardPDFView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, register_number):
+        role_code = getattr(getattr(request.user, "role", None), "code", None)
+        if role_code not in {"ADMIN", "HOD"}:
+            return Response({"detail": "Not authorized"}, status=status.HTTP_403_FORBIDDEN)
+
+        profile = StudentProfileService.get_profile(register_number=register_number, user=request.user)
+        if not profile:
+            return Response({"detail": "Student profile not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        orientation = request.query_params.get("orientation", "landscape")
+        pdf_buffer = IDCardService.generate_student_pdf(profile, orientation=orientation)
+        response = HttpResponse(pdf_buffer.getvalue(), content_type="application/pdf")
+        response["Content-Disposition"] = f'inline; filename="id_card_{register_number}.pdf"'
+        return response
+
+
+class FacultyIDCardPDFView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, faculty_id):
+        role_code = getattr(getattr(request.user, "role", None), "code", None)
+        if role_code not in {"ADMIN", "HOD"}:
+            return Response({"detail": "Not authorized"}, status=status.HTTP_403_FORBIDDEN)
+
+        try:
+            profile = FacultyProfile.objects.get(id=faculty_id)
+        except FacultyProfile.DoesNotExist:
+            return Response({"detail": "Faculty profile not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        orientation = request.query_params.get("orientation", "landscape")
+        pdf_buffer = IDCardService.generate_faculty_pdf(profile, orientation=orientation)
+        response = HttpResponse(pdf_buffer.getvalue(), content_type="application/pdf")
+        response["Content-Disposition"] = f'inline; filename="id_card_faculty_{faculty_id}.pdf"'
+        return response
+
+
+class BulkIDCardPDFView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        role_code = getattr(getattr(request.user, "role", None), "code", None)
+        if role_code not in {"ADMIN", "HOD"}:
+            return Response({"detail": "Not authorized"}, status=status.HTTP_403_FORBIDDEN)
+
+        ids = request.data.get("ids", [])
+        type = request.data.get("type", "students")
+        orientation = request.data.get("orientation", "landscape")
+
+        if not ids:
+            return Response({"detail": "No IDs provided"}, status=status.HTTP_400_BAD_REQUEST)
+
+        buffer = io.BytesIO()
+        width, height = (IDCardService.CARD_WIDTH, IDCardService.CARD_HEIGHT) if orientation == 'landscape' else (IDCardService.CARD_HEIGHT, IDCardService.CARD_WIDTH)
+        c = canvas.Canvas(buffer, pagesize=(width, height))
+
+        if type == "students":
+            profiles = StudentProfile.objects.filter(id__in=ids)
+            for profile in profiles:
+                IDCardService._front(c, profile, is_student=True, orientation=orientation)
+                c.showPage()
+                IDCardService._back_student(c, profile, orientation=orientation)
+                c.showPage()
+        else:
+            profiles = FacultyProfile.objects.filter(id__in=ids)
+            for profile in profiles:
+                IDCardService._front(c, profile, is_student=False, orientation=orientation)
+                c.showPage()
+                IDCardService._back_faculty(c, profile, orientation=orientation)
+                c.showPage()
+
+        c.save()
+        buffer.seek(0)
+
+        response = HttpResponse(buffer.getvalue(), content_type="application/pdf")
+        response["Content-Disposition"] = 'attachment; filename="bulk_id_cards.pdf"'
+        return response
+
+
+class IDCardTemplateView(APIView):
+    """GET the current template; PATCH to update individual colour fields."""
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+
+    def _check_admin(self, request):
+        role_code = getattr(getattr(request.user, "role", None), "code", None)
+        return role_code == "ADMIN"
+
+    def get(self, request):
+        template = IDCardTemplate.get_or_create_default()
+        return Response(IDCardTemplateSerializer(template).data)
+
+    def patch(self, request):
+        if not self._check_admin(request):
+            return Response({"detail": "Not authorized"}, status=status.HTTP_403_FORBIDDEN)
+        template = IDCardTemplate.get_or_create_default()
+        serializer = IDCardTemplateSerializer(template, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
+
+class IDCardTemplateResetView(APIView):
+    """POST to wipe custom colours and restore factory defaults."""
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        role_code = getattr(getattr(request.user, "role", None), "code", None)
+        if role_code != "ADMIN":
+            return Response({"detail": "Not authorized"}, status=status.HTTP_403_FORBIDDEN)
+        IDCardTemplate.objects.filter(name="default").delete()
+        template = IDCardTemplate.get_or_create_default()  # re-creates with defaults
+        return Response(IDCardTemplateSerializer(template).data)

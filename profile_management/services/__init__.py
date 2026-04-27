@@ -3,6 +3,7 @@ from .faculty_service import FacultyProfileService
 from .parent_service import ParentAuthService
 from .academic_service import AcademicService
 from .tenant_service import TenantService
+from .id_card_service import IDCardService
 
 __all__ = [
     "StudentProfileService",
@@ -10,4 +11,5 @@ __all__ = [
     "ParentAuthService",
     "AcademicService",
     "TenantService",
+    "IDCardService",
 ]

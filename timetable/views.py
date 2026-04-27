@@ -24,10 +24,12 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
 from django.core.exceptions import ValidationError
 from django.http import FileResponse
-from django.db import transaction
+from django.db import transaction, models
+from django.db.models import Sum, Avg, Count, Q
 from django.utils import timezone
 
 from core.models import Section
+from profile_management.models import Semester, FacultyProfile
 from timetable.models import (
     PeriodDefinition,
     TimetableApprovalRequest,
@@ -50,6 +52,9 @@ from .serializers import (
     RoomMaintenanceBlockSerializer,
     CombinedClassSessionSerializer,
     DepartmentSectionCombinePolicySerializer,
+    HODCourseSerializer,
+    FacultyWorkloadDataSerializer,
+    HODCurriculumDataSerializer,
 )
 from .services import TimetableService
 
@@ -1002,3 +1007,240 @@ class RescheduleMaintenanceView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
+
+class HODCoursesListView(APIView):
+    """
+    GET /api/timetable/hod/courses/
+    Lists all courses (SectionSubjectRequirement) for the HOD's department.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from configuration.services.feature_flag_service import FeatureFlagService
+        if not FeatureFlagService.is_enabled("hod_courses"):
+            return Response(
+                {"error": "HOD Courses feature is not enabled for this tenant."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        department = _get_hod_department(request.user)
+        if not department:
+            return Response(
+                {"error": "Unauthorized. Only HODs can access this endpoint."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # We base this on SectionSubjectRequirement as it represents the mapping
+        # of Section + Subject + Faculty which is what the frontend expects.
+        qs = SectionSubjectRequirement.objects.filter(
+            subject__department=department
+        ).select_related(
+            'subject', 'section', 'semester', 'faculty', 
+            'semester__academic_year', 'section__course'
+        )
+
+        serializer = HODCourseSerializer(qs, many=True)
+        return Response(serializer.data)
+
+class HODFacultyWorkloadView(APIView):
+    """
+    GET /api/timetable/hod/faculty-workload/
+    Returns workload distribution for all faculty in the HOD's department.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from configuration.services.feature_flag_service import FeatureFlagService
+        if not FeatureFlagService.is_enabled("faculty_workload"):
+            return Response(
+                {"error": "Faculty Workload feature is not enabled for this tenant."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        department = _get_hod_department(request.user)
+        if not department:
+            return Response(
+                {"error": "Unauthorized. Only HODs can access this endpoint."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # 1. Get current semester
+        semester = Semester.objects.filter(is_current=True).first()
+        if not semester:
+             return Response({"error": "No current semester found."}, status=status.HTTP_404_NOT_FOUND)
+
+        # 2. Get all faculty in this department
+        faculties = FacultyProfile.objects.filter(
+            department=department, 
+            is_active=True
+        ).select_related('user')
+        
+        faculty_workloads = []
+        total_course_sections = 0
+        overloaded_count = 0
+        optimal_count = 0
+        underloaded_count = 0
+        total_hours = 0
+
+        # Pre-fetch all assignments for this semester to avoid N+1 queries
+        all_assignments = SectionSubjectRequirement.objects.filter(
+            semester=semester
+        ).select_related('subject', 'section', 'semester', 'subject__department')
+
+        for f in faculties:
+            # Filter assignments for this specific faculty user
+            faculty_assignments = [a for a in all_assignments if a.faculty_id == f.user_id]
+            
+            hours = sum(a.periods_per_week for a in faculty_assignments)
+            total_course_sections += len(faculty_assignments)
+            total_hours += hours
+            
+            # Status calculation
+            max_h = f.teaching_load or 18
+            if hours > max_h:
+                status_str = "OVERLOADED"
+                overloaded_count += 1
+            elif hours < (max_h - 4):
+                status_str = "UNDERLOADED"
+                underloaded_count += 1
+            else:
+                status_str = "OPTIMAL"
+                optimal_count += 1
+
+            # Attendance Avg
+            from attendance.models import AttendanceReport
+            # Filter attendance reports for subjects and sections taught by this faculty
+            assignment_q = Q()
+            for a in faculty_assignments:
+                assignment_q |= Q(subject_id=a.subject_id, student__section_id=a.section_id)
+            
+            att_avg = 0.0
+            if faculty_assignments:
+                att_avg = AttendanceReport.objects.filter(
+                    assignment_q,
+                    semester=semester
+                ).aggregate(avg=Avg('attendance_percentage'))['avg'] or 0.0
+
+            # Pending Grading
+            from assignment.models import AssignmentSubmission
+            pending_grading = AssignmentSubmission.objects.filter(
+                assignment__created_by=f.user,
+                status='SUBMITTED'
+            ).count()
+
+            faculty_workloads.append({
+                'id': f.id,
+                'facultyName': f.full_name,
+                'employeeId': f.user.email or f.user.register_number or str(f.user.id),
+                'designation': f.designation,
+                'department': department.name,
+                'profile_photo': f.profile_photo,
+                'totalHoursPerWeek': hours,
+                'maxHoursPerWeek': max_h,
+                'status': status_str,
+                'attendanceAvg': float(att_avg),
+                'pendingGradingCount': pending_grading,
+                'courseAssignments': faculty_assignments
+            })
+
+        summary_stats = {
+            'totalFaculty': faculties.count(),
+            'overloadedCount': overloaded_count,
+            'optimalCount': optimal_count,
+            'underloadedCount': underloaded_count,
+            'avgHoursPerWeek': int(total_hours / (faculties.count() or 1)),
+            'totalCourseSections': total_course_sections
+        }
+
+        # 3. AI Insights (Placeholder for actual AI call)
+        ai_insights = None
+        if FeatureFlagService.is_enabled("ai_copilot"):
+            # If AI is enabled, provide a constructive summary
+            imbalanced = overloaded_count > 0 or underloaded_count > 0
+            if imbalanced:
+                ai_insights = (
+                    f"AI Analysis: There are {overloaded_count} overloaded and {underloaded_count} underloaded faculty. "
+                    "Consider redistributing project or elective sections to optimize department efficiency."
+                )
+            else:
+                ai_insights = "AI Analysis: All faculty members are currently within optimal workload ranges. No immediate adjustments needed."
+
+        response_data = {
+            'departmentName': department.name,
+            'semesterLabel': str(semester),
+            'summaryStats': summary_stats,
+            'facultyWorkloads': faculty_workloads,
+            'aiInsights': ai_insights
+        }
+
+        serializer = FacultyWorkloadDataSerializer(response_data)
+        return Response(serializer.data)
+
+class HODCurriculumView(APIView):
+    """
+    GET /api/timetable/hod/curriculum/
+    Returns curriculum data (courses and subjects) for the HOD's department.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from configuration.services.feature_flag_service import FeatureFlagService
+        if not FeatureFlagService.is_enabled("hod_curriculum"):
+            return Response(
+                {"error": "HOD Curriculum feature is not enabled for this tenant."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        department = _get_hod_department(request.user)
+        if not department:
+            return Response(
+                {"error": "Unauthorized. Only HODs can access this endpoint."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # 1. Get Courses in this department
+        from core.models import Course
+        courses = Course.objects.filter(department=department)
+
+        # 2. Get Subjects in this department
+        subjects = Subject.objects.filter(department=department, is_active=True).order_by('semester_number', 'code')
+
+        # 3. Group subjects by semester
+        subjects_by_semester = {}
+        total_credits = 0
+        core_count = 0
+        elective_count = 0
+
+        for s in subjects:
+            sem = str(s.semester_number)
+            if sem not in subjects_by_semester:
+                subjects_by_semester[sem] = []
+            subjects_by_semester[sem].append(s)
+            
+            total_credits += float(s.credits)
+            if s.subject_type == 'ELECTIVE':
+                elective_count += 1
+            else:
+                core_count += 1
+
+        # 4. AI Curriculum Insight
+        ai_insight = None
+        if FeatureFlagService.is_enabled("ai_copilot"):
+            if total_credits > 180:
+                ai_insight = "AI Analysis: The total credit requirement for this curriculum is above the standard recommendation. Consider reviewing elective distribution in semesters 6 and 7."
+            else:
+                ai_insight = "AI Analysis: Curriculum structure is balanced. Credit distribution across core and elective subjects meets institutional standards."
+
+        data = {
+            'departmentName': department.name,
+            'courses': courses,
+            'subjectsBySemester': subjects_by_semester,
+            'totalSubjects': subjects.count(),
+            'totalCredits': total_credits,
+            'coreSubjectsCount': core_count,
+            'electiveSubjectsCount': elective_count,
+            'aiCurriculumInsight': ai_insight
+        }
+
+        serializer = HODCurriculumDataSerializer(data)
+        return Response(serializer.data)

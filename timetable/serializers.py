@@ -29,7 +29,7 @@ from timetable.models import (
     DepartmentSectionCombinePolicy,
     CombinedClassSession,
 )
-from core.models import Department, Section, User
+from core.models import Department, Section, User, Course
 from profile_management.models import Semester
 
 
@@ -566,3 +566,245 @@ class CombinedClassSessionSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({"section_ids": "Sections must be from the same year to be combined."})
 
         return data
+
+# ===========================================================================
+# HOD Courses View Serializer
+# ===========================================================================
+
+class HODCourseSerializer(serializers.ModelSerializer):
+    """
+    Serializer for the HOD Courses view.
+    Based on SectionSubjectRequirement as it links Section, Subject, and Faculty.
+    """
+    subjectCode = serializers.CharField(source='subject.code', read_only=True)
+    subjectName = serializers.CharField(source='subject.name', read_only=True)
+    credits = serializers.DecimalField(source='subject.credits', max_digits=3, decimal_places=1, read_only=True)
+    type = serializers.CharField(source='subject.subject_type', read_only=True)
+    semester = serializers.IntegerField(source='semester.number', read_only=True)
+    semesterLabel = serializers.SerializerMethodField()
+    section = serializers.CharField(source='section.name', read_only=True)
+    facultyName = serializers.SerializerMethodField()
+    facultyId = serializers.IntegerField(source='faculty.id', read_only=True, allow_null=True)
+    
+    studentsCount = serializers.SerializerMethodField()
+    avgAttendance = serializers.SerializerMethodField()
+    avgGrade = serializers.SerializerMethodField()
+    classesCompleted = serializers.SerializerMethodField()
+    classesTotal = serializers.SerializerMethodField()
+    assignmentsCount = serializers.SerializerMethodField()
+    pendingSubmissions = serializers.SerializerMethodField()
+    schedule = serializers.SerializerMethodField()
+    room = serializers.SerializerMethodField()
+    status = serializers.SerializerMethodField()
+
+    class Meta:
+        model = SectionSubjectRequirement
+        fields = [
+            'id', 'subjectCode', 'subjectName', 'credits', 'type', 
+            'semester', 'semesterLabel', 'section', 'facultyName', 'facultyId',
+            'studentsCount', 'avgAttendance', 'avgGrade', 'classesCompleted', 
+            'classesTotal', 'assignmentsCount', 'pendingSubmissions', 
+            'schedule', 'room', 'status'
+        ]
+
+    def get_semester_label(self, obj) -> str:
+        return f"Semester {obj.semester.number} — {obj.semester.academic_year.year_code}"
+
+    def get_faculty_name(self, obj) -> str:
+        return obj.faculty.get_full_name() if obj.faculty else "Not Assigned"
+
+    def get_studentsCount(self, obj) -> int:
+        return obj.section.student_profiles.count()
+
+    def get_avgAttendance(self, obj) -> float:
+        from attendance.models import AttendanceReport
+        report = AttendanceReport.objects.filter(
+            subject=obj.subject,
+            semester=obj.semester,
+            student__section=obj.section
+        ).first()
+        # In a real scenario, we'd average all students in this section
+        # For now, let's return a sensible default or aggregate
+        from django.db.models import Avg
+        avg = AttendanceReport.objects.filter(
+            subject=obj.subject,
+            semester=obj.semester,
+            student__section=obj.section
+        ).aggregate(Avg('attendance_percentage'))['attendance_percentage__avg']
+        return round(float(avg or 0.0), 1)
+
+    def get_avgGrade(self, obj) -> float:
+        from grades.models import CourseGrade
+        from django.db.models import Avg
+        avg = CourseGrade.objects.filter(
+            subject=obj.subject,
+            semester=obj.semester,
+            student__section=obj.section
+        ).aggregate(Avg('grade_points'))['grade_points__avg']
+        return round(float(avg or 0.0), 1)
+
+    def get_classesCompleted(self, obj) -> int:
+        from attendance.models import AttendanceSession
+        return AttendanceSession.objects.filter(
+            timetable_entry__subject=obj.subject,
+            timetable_entry__section=obj.section,
+            semester=obj.semester,
+            status='CLOSED'
+        ).count()
+
+    def get_classesTotal(self, obj) -> int:
+        # Mock calculation: periods per week * 15 weeks
+        return obj.periods_per_week * 15
+
+    def get_assignmentsCount(self, obj) -> int:
+        try:
+            from assignment.models import Assignment
+            return Assignment.objects.filter(
+                subject=obj.subject,
+                section=obj.section,
+                semester=obj.semester
+            ).count()
+        except (ImportError, Exception):
+            return 0
+
+    def get_pendingSubmissions(self, obj) -> int:
+        try:
+            from assignment.models import AssignmentSubmission
+            return AssignmentSubmission.objects.filter(
+                assignment__subject=obj.subject,
+                assignment__section=obj.section,
+                assignment__semester=obj.semester,
+                status='PENDING'
+            ).count()
+        except (ImportError, Exception):
+            return 0
+
+    def get_schedule(self, obj) -> str:
+        # Aggregate schedule from TimetableEntry
+        entries = TimetableEntry.objects.filter(
+            subject=obj.subject,
+            section=obj.section,
+            semester=obj.semester,
+            is_active=True
+        ).select_related('period_definition')
+        
+        if not entries.exists():
+            return "Not Scheduled"
+            
+        days = sorted(list(set([e.period_definition.get_day_of_week_display() for e in entries])))
+        if not days:
+            return "Multiple Slots"
+        
+        # Simple format: "Mon, Wed, Fri"
+        if len(days) > 3:
+            return f"{', '.join(days[:2])}..."
+        return ", ".join(days)
+
+    def get_room(self, obj) -> str:
+        entry = TimetableEntry.objects.filter(
+            subject=obj.subject,
+            section=obj.section,
+            semester=obj.semester,
+            is_active=True,
+            room__isnull=False
+        ).first()
+        if entry and entry.room:
+            return f"{entry.room.building} — {entry.room.room_number}"
+        return "TBD"
+
+    def get_status(self, obj) -> str:
+        if obj.semester.is_active:
+            return 'ACTIVE'
+        # Logic for COMPLETED/UPCOMING based on dates
+        import datetime
+        today = datetime.date.today()
+        if obj.semester.end_date < today:
+            return 'COMPLETED'
+        return 'UPCOMING'
+
+# ===========================================================================
+# Faculty Workload Serializers
+# ===========================================================================
+
+class FacultyWorkloadCourseAssignmentSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    subjectName = serializers.CharField(source='subject.name')
+    subjectCode = serializers.CharField(source='subject.code')
+    sectionName = serializers.CharField(source='section.name')
+    semester = serializers.IntegerField(source='semester.number')
+    hoursPerWeek = serializers.IntegerField(source='periods_per_week')
+    studentCount = serializers.SerializerMethodField()
+    department = serializers.CharField(source='subject.department.name')
+
+    def get_studentCount(self, obj) -> int:
+        return obj.section.student_profiles.count()
+
+class FacultyWorkloadItemSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    facultyName = serializers.CharField()
+    employeeId = serializers.CharField()
+    designation = serializers.CharField()
+    department = serializers.CharField()
+    profilePhoto = serializers.SerializerMethodField()
+    totalHoursPerWeek = serializers.IntegerField()
+    maxHoursPerWeek = serializers.IntegerField()
+    status = serializers.CharField()
+    attendanceAvg = serializers.FloatField()
+    pendingGradingCount = serializers.IntegerField()
+    courseAssignments = FacultyWorkloadCourseAssignmentSerializer(many=True)
+
+    def get_profilePhoto(self, obj) -> str:
+        if obj.get('profile_photo'):
+            return obj['profile_photo'].url if hasattr(obj['profile_photo'], 'url') else str(obj['profile_photo'])
+        return None
+
+class FacultyWorkloadSummaryStatsSerializer(serializers.Serializer):
+    totalFaculty = serializers.IntegerField()
+    overloadedCount = serializers.IntegerField()
+    optimalCount = serializers.IntegerField()
+    underloadedCount = serializers.IntegerField()
+    avgHoursPerWeek = serializers.IntegerField()
+    totalCourseSections = serializers.IntegerField()
+
+class FacultyWorkloadDataSerializer(serializers.Serializer):
+    departmentName = serializers.CharField()
+    semesterLabel = serializers.CharField()
+    summaryStats = FacultyWorkloadSummaryStatsSerializer()
+    facultyWorkloads = FacultyWorkloadItemSerializer(many=True)
+    aiInsights = serializers.CharField(allow_null=True, required=False)
+
+# ===========================================================================
+# Curriculum Serializers
+# ===========================================================================
+
+class CurriculumSubjectSerializer(serializers.ModelSerializer):
+    type = serializers.CharField(source='subject_type')
+    
+    class Meta:
+        model = Subject
+        fields = ['id', 'code', 'name', 'type', 'semester_number', 'credits', 'is_active']
+
+class CurriculumCourseSerializer(serializers.ModelSerializer):
+    subjectsCount = serializers.SerializerMethodField()
+    totalCredits = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Course
+        fields = ['id', 'name', 'code', 'duration_years', 'subjectsCount', 'totalCredits']
+
+    def get_subjectsCount(self, obj) -> int:
+        return obj.department.subjects.count()
+
+    def get_totalCredits(self, obj) -> float:
+        from django.db.models import Sum
+        return float(obj.department.subjects.aggregate(Sum('credits'))['credits__sum'] or 0.0)
+
+class HODCurriculumDataSerializer(serializers.Serializer):
+    departmentName = serializers.CharField()
+    courses = CurriculumCourseSerializer(many=True)
+    subjectsBySemester = serializers.DictField(child=CurriculumSubjectSerializer(many=True))
+    totalSubjects = serializers.IntegerField()
+    totalCredits = serializers.FloatField()
+    coreSubjectsCount = serializers.IntegerField()
+    electiveSubjectsCount = serializers.IntegerField()
+    aiCurriculumInsight = serializers.CharField(allow_null=True, required=False)

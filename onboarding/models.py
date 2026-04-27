@@ -146,6 +146,46 @@ class StudentOnboardingApproval(models.Model):
         ordering = ["-updated_at"]
 
 
+class FacultyOnboardingApproval(models.Model):
+    STATUS_PENDING = "PENDING"
+    STATUS_APPROVED = "APPROVED"
+    STATUS_REJECTED = "REJECTED"
+    STATUS_CHOICES = [
+        (STATUS_PENDING, "Pending"),
+        (STATUS_APPROVED, "Approved"),
+        (STATUS_REJECTED, "Rejected"),
+    ]
+
+    faculty_profile = models.OneToOneField(
+        "profile_management.FacultyProfile",
+        on_delete=models.CASCADE,
+        related_name="onboarding_approval",
+    )
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING, db_index=True)
+    requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="requested_faculty_onboarding_approvals",
+    )
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="approved_faculty_onboarding_approvals",
+    )
+    remarks = models.TextField(blank=True)
+    approved_at = models.DateTimeField(null=True, blank=True)
+    rejected_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-updated_at"]
+
+
 class TemporaryOnboardingAccess(models.Model):
     SCOPE_ALL = "ALL"
     SCOPE_CHOICES = [
