@@ -133,16 +133,36 @@ class Command(BaseCommand):
 
                 # 5. Students & Exams
                 self.stdout.write("Seeding Students and Exam Results...")
-                sections = Section.objects.all()
-                for section in sections:
-                    for _ in range(students_per_section):
-                        reg_no = f"VST24{random.randint(100000, 999999)}"
-                        while User.objects.filter(register_number=reg_no).exists(): reg_no = f"VST24{random.randint(100000, 999999)}"
-                        user = User.objects.create(email=f"s.{reg_no.lower()}@vels.edu", register_number=reg_no, role=student_role, department=section.course.department, is_active=True)
-                        user.set_password("Test@123")
-                        user.save()
-                        StudentProfile.objects.create(user=user, first_name=name_pool[name_idx % len(name_pool)], last_name='Student', register_number=reg_no, department=section.course.department, course=section.course, section=section, year=section.year, semester=section.year*2, profile_completed=True)
-                        name_idx += 1
+                current_count = StudentProfile.objects.count()
+                if current_count >= total_students_target:
+                    self.stdout.write(self.style.SUCCESS(f"Found {current_count} students. Target of {total_students_target} already met or exceeded. Skipping student generation."))
+                else:
+                    students_to_create = total_students_target - current_count
+                    self.stdout.write(f"Creating {students_to_create} more students to reach target of {total_students_target}...")
+                    sections = list(Section.objects.all())
+                    if not sections:
+                        self.stdout.write(self.style.ERROR("No sections found to assign students to!"))
+                    else:
+                        for _ in range(students_to_create):
+                            section = random.choice(sections)
+                            reg_no = f"VST24{random.randint(100000, 999999)}"
+                            while User.objects.filter(register_number=reg_no).exists(): reg_no = f"VST24{random.randint(100000, 999999)}"
+                            user = User.objects.create(email=f"s.{reg_no.lower()}@vels.edu", register_number=reg_no, role=student_role, department=section.course.department, is_active=True)
+                            user.set_password("Test@123")
+                            user.save()
+                            StudentProfile.objects.create(
+                                user=user, 
+                                first_name=name_pool[name_idx % len(name_pool)], 
+                                last_name='Student', 
+                                register_number=reg_no, 
+                                department=section.course.department, 
+                                course=section.course, 
+                                section=section, 
+                                year=section.year, 
+                                semester=section.year*2, 
+                                profile_completed=True
+                            )
+                            name_idx += 1
 
             self.stdout.write(self.style.SUCCESS(f"\nSuccessfully seeded Timetable Entities for Vels!"))
             self.stdout.write(f"Entities: PeriodDefinitions (Mon-Fri) and TimetableEntries (Daily P1) created for all sections.")

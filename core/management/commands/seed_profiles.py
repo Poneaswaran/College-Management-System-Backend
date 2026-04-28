@@ -85,7 +85,7 @@ class Command(BaseCommand):
             
             self.stdout.write('')
             self.stdout.write(self.style.SUCCESS('=' * 60))
-            self.stdout.write(self.style.SUCCESS('✓ ALL PROFILES CREATED SUCCESSFULLY!'))
+            self.stdout.write(self.style.SUCCESS('[OK] ALL PROFILES CREATED SUCCESSFULLY!'))
             self.stdout.write(self.style.SUCCESS('=' * 60))
             self.stdout.write('')
             
@@ -104,7 +104,7 @@ class Command(BaseCommand):
             }
         )
         if created:
-            self.stdout.write(f'  ✓ Created role: {name}')
+            self.stdout.write(f'  [OK] Created role: {name}')
         return role
     
     def get_or_create_department(self, name, code):
@@ -117,7 +117,7 @@ class Command(BaseCommand):
             }
         )
         if created:
-            self.stdout.write(f'  ✓ Created department: {name}')
+            self.stdout.write(f'  [OK] Created department: {name}')
         return dept
     
     def get_or_create_course(self, department, name, code, duration_years):
@@ -131,7 +131,7 @@ class Command(BaseCommand):
             }
         )
         if created:
-            self.stdout.write(f'  ✓ Created course: {name}')
+            self.stdout.write(f'  [OK] Created course: {name}')
         return course
     
     def get_or_create_section(self, course, name, year):
@@ -142,7 +142,7 @@ class Command(BaseCommand):
             year=year
         )
         if created:
-            self.stdout.write(f'  ✓ Created section: {course.code} Year-{year} Section-{name}')
+            self.stdout.write(f'  [OK] Created section: {course.code} Year-{year} Section-{name}')
         return section
     
     def get_or_create_academic_year(self):
@@ -156,7 +156,7 @@ class Command(BaseCommand):
             }
         )
         if created:
-            self.stdout.write(f'  ✓ Created academic year: 2025-26')
+            self.stdout.write(f'  [OK] Created academic year: 2025-26')
         return academic_year
     
     def get_or_create_semester(self, academic_year):
@@ -171,7 +171,7 @@ class Command(BaseCommand):
             }
         )
         if created:
-            self.stdout.write(f'  ✓ Created semester: Odd Semester 2025-26')
+            self.stdout.write(f'  [OK] Created semester: Odd Semester 2025-26')
         return semester
     
     def create_admin_user(self, admin_role):
@@ -179,7 +179,7 @@ class Command(BaseCommand):
         email = 'bala@gmail.com'
         
         if User.objects.filter(email=email).exists():
-            self.stdout.write(self.style.WARNING(f'  ⚠ Admin user {email} already exists, skipping...'))
+            self.stdout.write(self.style.WARNING(f'  [SKIP] Admin user {email} already exists, skipping...'))
             return User.objects.get(email=email)
         
         user = User.objects.create_user(
@@ -190,7 +190,7 @@ class Command(BaseCommand):
             is_superuser=True
         )
         
-        self.stdout.write(self.style.SUCCESS(f'  ✓ Created admin user: {email}'))
+        self.stdout.write(self.style.SUCCESS(f'  [OK] Created admin user: {email}'))
         return user
     
     def create_hod_user(self, index, hod_role, department):
@@ -198,7 +198,7 @@ class Command(BaseCommand):
         email = f'hod{index}@college.edu'
         
         if User.objects.filter(email=email).exists():
-            self.stdout.write(self.style.WARNING(f'  ⚠ HOD {email} already exists, skipping...'))
+            self.stdout.write(self.style.WARNING(f'  [SKIP] HOD {email} already exists, skipping...'))
             return User.objects.get(email=email)
         
         user = User.objects.create_user(
@@ -209,7 +209,7 @@ class Command(BaseCommand):
             is_staff=True
         )
         
-        self.stdout.write(self.style.SUCCESS(f'  ✓ Created HOD: {email} ({department.name})'))
+        self.stdout.write(self.style.SUCCESS(f'  [OK] Created HOD: {email} ({department.name})'))
         return user
     
     def create_faculty_user(self, index, faculty_role, department):
@@ -217,7 +217,7 @@ class Command(BaseCommand):
         email = f'faculty{index}@college.edu'
         
         if User.objects.filter(email=email).exists():
-            self.stdout.write(self.style.WARNING(f'  ⚠ Faculty {email} already exists, skipping...'))
+            self.stdout.write(self.style.WARNING(f'  [SKIP] Faculty {email} already exists, skipping...'))
             return User.objects.get(email=email)
         
         user = User.objects.create_user(
@@ -228,7 +228,7 @@ class Command(BaseCommand):
             is_staff=False
         )
         
-        self.stdout.write(self.style.SUCCESS(f'  ✓ Created faculty: {email} ({department.code})'))
+        self.stdout.write(self.style.SUCCESS(f'  [OK] Created faculty: {email} ({department.code})'))
         return user
     
     def create_student_user_with_profile(self, index, student_role, department, 
@@ -239,7 +239,7 @@ class Command(BaseCommand):
         
         if User.objects.filter(register_number=register_number).exists():
             self.stdout.write(self.style.WARNING(
-                f'  ⚠ Student {register_number} already exists, skipping...'
+                f'  [SKIP] Student {register_number} already exists, skipping...'
             ))
             return
         
@@ -301,7 +301,7 @@ class Command(BaseCommand):
         )
         
         self.stdout.write(self.style.SUCCESS(
-            f'  ✓ Created student: {register_number} - {profile.full_name} '
+            f'  [OK] Created student: {register_number} - {profile.full_name} '
             f'({department.code}, Year-{year})'
         ))
         

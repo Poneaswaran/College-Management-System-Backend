@@ -197,8 +197,8 @@ class Command(BaseCommand):
 
     def _ensure_sections(self, course):
         sections = [
-            Section.objects.get_or_create(course=course, name="A", year=3)[0],
-            Section.objects.get_or_create(course=course, name="B", year=3)[0],
+            Section.objects.get_or_create(course=course, code="A", year=3)[0],
+            Section.objects.get_or_create(course=course, code="B", year=3)[0],
         ]
         return sections
 
