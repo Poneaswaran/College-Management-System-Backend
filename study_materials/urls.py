@@ -7,12 +7,14 @@ from .views import (
     StudyMaterialRecordViewView,
     StudyMaterialUpdateDeleteView,
     StudyMaterialUploadView,
+    FacultySubjectsSectionsView,
 )
 
 app_name = 'study_materials'
 
 urlpatterns = [
     path('upload/', StudyMaterialUploadView.as_view(), name='upload_material'),
+    path('faculty/subjects-sections/', FacultySubjectsSectionsView.as_view(), name='faculty_subjects_sections'),
     path('my-uploaded/', StudyMaterialMyUploadedListView.as_view(), name='my_uploaded_materials'),
     path('available-for-student/', StudyMaterialAvailableForStudentListView.as_view(), name='available_for_student'),
     path('ai/chat/', StudyMaterialAIChatView.as_view(), name='ai_chat'),

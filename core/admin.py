@@ -4,7 +4,14 @@ from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.contrib.auth.forms import ReadOnlyPasswordHashField
 from django import forms
 
-from .models import Department, Course, Section, Role
+from .models import School, Department, Course, Section, Role
+
+@admin.register(School)
+class SchoolAdmin(admin.ModelAdmin):
+	list_display = ("name", "code", "is_active")
+	search_fields = ("name", "code")
+	list_filter = ("is_active",)
+
 
 User = get_user_model()
 

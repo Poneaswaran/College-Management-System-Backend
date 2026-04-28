@@ -15,6 +15,10 @@ KNOWN_FLAGS = [
     "study_materials",
     "hod_courses",
     "hod_curriculum",
+    "hod_profile",
+    "hod_students",
+    "hod_arrears",
+    "hod_grievances",
 ]
 class FeatureFlagService:
     @staticmethod

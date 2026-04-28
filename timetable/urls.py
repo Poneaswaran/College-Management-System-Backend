@@ -1,4 +1,4 @@
-from django.urls import path
+from django.urls import path, include
 from .views import (
     # Existing
     TimetableEntryCreateView,
@@ -115,4 +115,5 @@ urlpatterns = [
     path('ai/chat/', TimetableChatView.as_view(), name='ai-chat'),
     path('ai/audit/', ScheduleAuditView.as_view(), name='ai-audit'),
     path('ai/explain-why-not/', ExplainWhyNotView.as_view(), name='ai-explain-why-not'),
-] + router.urls
+    path('', include(router.urls)),
+]

@@ -1,6 +1,6 @@
 from typing import List, Dict, Union
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
-from core.models import Role, Permission, RolePermission, Department, Course, Section, User
+from core.models import Role, Permission, RolePermission, Department, Course, Section, User, School
 from timetable.models import PeriodDefinition, Subject
 from profile_management.models import AcademicYear, Semester
 

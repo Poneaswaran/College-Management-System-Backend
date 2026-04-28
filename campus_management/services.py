@@ -163,6 +163,9 @@ class TimetableIntegrationService:
         
         data = []
         for s_id, group in section_groups.items():
+            if not group['entries']:
+                continue
+                
             # Determine the major venue (most used)
             venue_counts = Counter([e['venue_id'] for e in group['entries']])
             major_venue_id = venue_counts.most_common(1)[0][0]

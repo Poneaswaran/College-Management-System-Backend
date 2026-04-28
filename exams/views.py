@@ -1,9 +1,11 @@
 from rest_framework import generics, status, permissions
 from rest_framework.response import Response
-from .serializers import InvigilationAttendanceSerializer
-from .models import ExamSchedule
+from rest_framework.exceptions import PermissionDenied
+from .serializers import InvigilationAttendanceSerializer, ArrearResultSerializer
+from .models import ExamSchedule, ExamResult
 from .services import SeatingService
 from core.auth import JWTAuthentication
+from configuration.services.feature_flag_service import FeatureFlagService
 
 class MarkInvigilationAttendanceView(generics.GenericAPIView):
     """
@@ -54,3 +56,37 @@ class MarkInvigilationAttendanceView(generics.GenericAPIView):
                 {"error": str(e)},
                 status=status.HTTP_400_BAD_REQUEST
             )
+
+class HODArrearListView(generics.ListAPIView):
+    """
+    API view for HOD to list all students in their department who have arrears (failed subjects).
+    """
+    serializer_class = ArrearResultSerializer
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        if not FeatureFlagService.is_enabled("hod_arrears"):
+            raise PermissionDenied("HOD Arrears feature is currently disabled.")
+        return super().get(request, *args, **kwargs)
+
+    def get_queryset(self):
+        user = self.request.user
+        if user.role.code != 'HOD':
+            return ExamResult.objects.none()
+        
+        try:
+            department = user.faculty_profile.department
+        except AttributeError:
+            return ExamResult.objects.none()
+            
+        return ExamResult.objects.filter(
+            student__department=department,
+            is_pass=False
+        ).select_related(
+            'student', 
+            'student__user', 
+            'schedule', 
+            'schedule__subject', 
+            'schedule__exam'
+        ).order_by('student__register_number', 'schedule__date')

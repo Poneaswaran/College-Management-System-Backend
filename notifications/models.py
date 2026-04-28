@@ -116,3 +116,41 @@ class NotificationPreference(models.Model):
 
     def __str__(self) -> str:
         return f"{self.user.get_full_name()} - {self.category} preferences"
+
+
+class DepartmentNotice(models.Model):
+    """
+    Department-wide notices posted by HOD.
+    """
+    id = models.BigAutoField(primary_key=True)
+    title = models.CharField(max_length=255)
+    message = models.TextField()
+    department = models.ForeignKey(
+        'core.Department',
+        on_delete=models.CASCADE,
+        related_name="notices"
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="posted_notices"
+    )
+    target_audience = models.CharField(
+        max_length=20,
+        choices=[
+            ('STUDENTS', 'Students'),
+            ('FACULTY', 'Faculty'),
+            ('BOTH', 'Both')
+        ],
+        default='BOTH'
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "Department Notice"
+        verbose_name_plural = "Department Notices"
+
+    def __str__(self):
+        return f"{self.title} - {self.department.code}"

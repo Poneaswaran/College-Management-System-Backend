@@ -239,6 +239,15 @@ class FacultyProfile(models.Model):
     teaching_load = models.PositiveIntegerField(default=0, help_text="Hours per week")
     profile_photo = models.ImageField(upload_to='faculty_profiles/', null=True, blank=True)
     
+    # New fields for HOD/Professional Profile
+    phone = models.CharField(max_length=15, null=True, blank=True)
+    address = models.TextField(null=True, blank=True)
+    date_of_birth = models.DateField(null=True, blank=True)
+    gender = models.CharField(max_length=10, choices=[('MALE', 'Male'), ('FEMALE', 'Female'), ('OTHER', 'Other')], null=True, blank=True)
+    hod_since = models.DateField(null=True, blank=True)
+    research_interests = models.JSONField(default=list, blank=True)
+    experience = models.CharField(max_length=100, null=True, blank=True, help_text="e.g., '15 Years'")
+    
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -258,6 +267,38 @@ class FacultyProfile(models.Model):
         if self.first_name:
             return f"{self.first_name} {self.last_name or ''}".strip()
         return self.user.email.split('@')[0] if self.user.email else "Faculty"
+
+
+# ==================================================
+# FACULTY PUBLICATIONS
+# ==================================================
+
+class FacultyPublication(models.Model):
+    PUBLICATION_TYPES = [
+        ('JOURNAL', 'Journal'),
+        ('CONFERENCE', 'Conference'),
+        ('BOOK_CHAPTER', 'Book Chapter'),
+    ]
+
+    faculty = models.ForeignKey(
+        FacultyProfile,
+        on_delete=models.CASCADE,
+        related_name="publications"
+    )
+    title = models.CharField(max_length=500)
+    journal = models.CharField(max_length=500, help_text="Journal name or Conference name")
+    year = models.PositiveIntegerField()
+    type = models.CharField(max_length=20, choices=PUBLICATION_TYPES)
+    doi = models.CharField(max_length=100, null=True, blank=True)
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-year', '-created_at']
+
+    def __str__(self):
+        return f"{self.title} ({self.year})"
 
 
 # ==================================================
