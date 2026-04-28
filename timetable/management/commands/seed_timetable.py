@@ -26,9 +26,9 @@ class Command(BaseCommand):
         )
         
         if ay_created:
-            self.stdout.write(self.style.SUCCESS(f'✓ Created Academic Year: {academic_year.year_code}'))
+            self.stdout.write(self.style.SUCCESS(f'[OK] Created Academic Year: {academic_year.year_code}'))
         else:
-            self.stdout.write(self.style.WARNING(f'✓ Academic Year already exists: {academic_year.year_code}'))
+            self.stdout.write(self.style.WARNING(f'[OK] Academic Year already exists: {academic_year.year_code}'))
         
         # Create Semester (Odd Semester)
         self.stdout.write('Creating Semester...')
@@ -43,9 +43,9 @@ class Command(BaseCommand):
         )
         
         if sem_created:
-            self.stdout.write(self.style.SUCCESS(f'✓ Created Semester: {semester}'))
+            self.stdout.write(self.style.SUCCESS(f'[OK] Created Semester: {semester}'))
         else:
-            self.stdout.write(self.style.WARNING(f'✓ Semester already exists: {semester}'))
+            self.stdout.write(self.style.WARNING(f'[OK] Semester already exists: {semester}'))
         
         # Create Timetable Configuration
         self.stdout.write('Creating Timetable Configuration...')
@@ -64,13 +64,13 @@ class Command(BaseCommand):
         )
         
         if config_created:
-            self.stdout.write(self.style.SUCCESS(f'✓ Created Timetable Configuration for {semester}'))
+            self.stdout.write(self.style.SUCCESS(f'[OK] Created Timetable Configuration for {semester}'))
             self.stdout.write(self.style.SUCCESS(f'  - {config.periods_per_day} periods per day'))
             self.stdout.write(self.style.SUCCESS(f'  - {config.default_period_duration} minutes per period'))
             self.stdout.write(self.style.SUCCESS(f'  - Day timing: {config.day_start_time} to {config.day_end_time}'))
             self.stdout.write(self.style.SUCCESS(f'  - Working days: Mon-Fri'))
         else:
-            self.stdout.write(self.style.WARNING(f'✓ Timetable Configuration already exists for {semester}'))
+            self.stdout.write(self.style.WARNING(f'[OK] Timetable Configuration already exists for {semester}'))
         
         # Summary
         self.stdout.write('')

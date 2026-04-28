@@ -54,7 +54,11 @@ class Command(BaseCommand):
                 for num in range(1, 9):
                     sem, _ = Semester.objects.update_or_create(
                         academic_year=ay, number=num, 
-                        defaults={'start_date': date(2024, 6, 1) if num % 2 != 0 else date(2024, 12, 1), 'is_current': (num == 2)}
+                        defaults={
+                            'start_date': date(2024, 6, 1) if num % 2 != 0 else date(2024, 12, 1), 
+                            'end_date': date(2024, 11, 30) if num % 2 != 0 else date(2025, 5, 31),
+                            'is_current': (num == 2)
+                        }
                     )
                     semesters[num] = sem
                 active_sem = semesters[2]
