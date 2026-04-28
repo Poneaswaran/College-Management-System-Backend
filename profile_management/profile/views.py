@@ -3,6 +3,7 @@ from reportlab.pdfgen import canvas
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework.pagination import PageNumberPagination
 
 from core.auth import JWTAuthentication
 from profile_management.models import FacultyProfile, StudentProfile, IDCardTemplate
@@ -21,7 +22,43 @@ from .serializers import (
     StudentProfilePhotoUpdateSerializer,
     StudentProfileSerializer,
     StudentProfileUpdateSerializer,
+    HODProfileSerializer,
+    HODProfileUpdateSerializer,
 )
+
+
+class HODProfileView(ETagMixin, APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        from configuration.services.feature_flag_service import FeatureFlagService
+        if not FeatureFlagService.is_enabled("hod_profile"):
+            return Response({"detail": "Feature disabled"}, status=status.HTTP_403_FORBIDDEN)
+
+        data = FacultyProfileService.get_hod_profile(request.user)
+        if not data:
+            return Response({"detail": "Not authorized or profile not found"}, status=status.HTTP_403_FORBIDDEN)
+        
+        return Response(HODProfileSerializer(data).data)
+
+    def patch(self, request):
+        from configuration.services.feature_flag_service import FeatureFlagService
+        if not FeatureFlagService.is_enabled("hod_profile"):
+            return Response({"detail": "Feature disabled"}, status=status.HTTP_403_FORBIDDEN)
+
+        serializer = HODProfileUpdateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            profile = FacultyProfileService.update_profile(
+                data=serializer.validated_data,
+                request_user=request.user,
+            )
+            # Re-fetch full HOD data to return consistent structure
+            data = FacultyProfileService.get_hod_profile(request.user)
+            return Response(HODProfileSerializer(data).data)
+        except Exception as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
 
 class StudentProfileDetailView(ETagMixin, APIView):
@@ -95,10 +132,17 @@ class StudentAdminProfileUpdateView(APIView):
         return Response(StudentProfileSerializer(profile).data)
 
 
+class StandardResultsSetPagination(PageNumberPagination):
+    page_size = 10
+    page_size_query_param = 'page_size'
+    max_page_size = 100
+
+
 class StudentListView(ETagMixin, generics.ListAPIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [permissions.IsAuthenticated]
     serializer_class = StudentProfileSerializer
+    pagination_class = StandardResultsSetPagination
 
     def get_queryset(self):
         params = self.request.query_params
@@ -109,6 +153,7 @@ class StudentListView(ETagMixin, generics.ListAPIView):
             course_id=params.get("course_id"),
             year=params.get("year"),
             academic_status=params.get("academic_status"),
+            search=params.get("search"),
         )
 
 
@@ -242,6 +287,57 @@ class HODFacultyListView(ETagMixin, APIView):
 
         response_serializer = HODFacultyListResponseSerializer(payload)
         return Response(response_serializer.data)
+
+
+class HODStudentListView(ETagMixin, generics.ListAPIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = StudentProfileSerializer
+    pagination_class = StandardResultsSetPagination
+
+    def get_queryset(self):
+        from configuration.services.feature_flag_service import FeatureFlagService
+        if not FeatureFlagService.is_enabled("hod_students"):
+            return StudentProfile.objects.none()
+
+        role_code = getattr(getattr(self.request.user, "role", None), "code", None)
+        if role_code not in {"HOD", "ADMIN"}:
+            return StudentProfile.objects.none()
+
+        params = self.request.query_params
+        return StudentProfileService.list_profiles(
+            user=self.request.user,
+            school_id=params.get("school_id"),
+            department_id=params.get("department_id"),
+            course_id=params.get("course_id"),
+            year=params.get("year"),
+            academic_status=params.get("academic_status"),
+            search=params.get("search"),
+        )
+
+
+class HODStudentPerformanceView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        from configuration.services.feature_flag_service import FeatureFlagService
+        if not FeatureFlagService.is_enabled("hod_students"):
+            return Response({"detail": "Feature disabled"}, status=status.HTTP_403_FORBIDDEN)
+
+        role_code = getattr(getattr(request.user, "role", None), "code", None)
+        if role_code not in {"HOD", "ADMIN"}:
+            return Response({"detail": "Not authorized"}, status=status.HTTP_403_FORBIDDEN)
+
+        params = request.query_params
+        data = StudentProfileService.get_hod_student_performance(
+            user=request.user,
+            department_id=params.get("department_id"),
+            course_id=params.get("course_id"),
+            year=params.get("year"),
+            section_id=params.get("section_id")
+        )
+        return Response(data)
 
 
 class ParentRequestOtpView(APIView):

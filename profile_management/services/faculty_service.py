@@ -114,8 +114,13 @@ class FacultyProfileService:
 
         profile = FacultyProfile.objects.get(user=target_user)
 
-        editable_fields = ["designation", "qualifications", "specialization", "office_hours"]
-        admin_only_fields = ["teaching_load", "department_id", "is_active"]
+        editable_fields = [
+            "first_name", "last_name", "phone", "address", 
+            "date_of_birth", "gender", "research_interests", 
+            "experience", "designation", "qualifications", 
+            "specialization", "office_hours"
+        ]
+        admin_only_fields = ["teaching_load", "department_id", "is_active", "hod_since"]
 
         for field_name in editable_fields:
             if data.get(field_name) is not None:
@@ -443,6 +448,90 @@ class FacultyProfileService:
             )
 
         return {"students": students_list, "total_count": total_count}
+
+    @staticmethod
+    def get_hod_profile(user):
+        """
+        Get detailed HOD profile data including department stats and publications.
+        Only accessible by HODs and Admins.
+        """
+        if user.role.code not in ("HOD", "ADMIN"):
+            return None
+
+        try:
+            profile = FacultyProfile.objects.select_related("user", "department", "department__school").get(user=user)
+        except FacultyProfile.DoesNotExist:
+            return None
+
+        # Fetch department stats
+        total_faculty = FacultyProfile.objects.filter(department=profile.department, is_active=True).count()
+        total_students = StudentProfile.objects.filter(department=profile.department, academic_status="ACTIVE").count()
+        
+        # Count active courses in the department (distinct subjects in timetable for current semester)
+        current_semester = Semester.objects.filter(is_current=True).first()
+        active_courses = 0
+        if current_semester:
+            active_courses = TimetableEntry.objects.filter(
+                section__course__department=profile.department,
+                semester=current_semester,
+                is_active=True
+            ).values("subject").distinct().count()
+
+        # Dummy research projects for now as there's no model for it yet, or use publications count
+        research_projects = profile.publications.count()
+
+        # Fetch publications
+        publications = [
+            {
+                "id": pub.id,
+                "title": pub.title,
+                "journal": pub.journal,
+                "year": pub.year,
+                "type": pub.type,
+                "doi": pub.doi,
+            }
+            for pub in profile.publications.all()
+        ]
+
+        # Get employee ID from onboarding record if it exists
+        from onboarding.models import FacultyOnboardingRecord
+        onboarding = FacultyOnboardingRecord.objects.filter(faculty_profile=profile).first()
+        employee_id = onboarding.employee_id if onboarding else f"EMP-{profile.id}"
+
+        return {
+            "id": profile.id,
+            "first_name": profile.first_name or "",
+            "last_name": profile.last_name or "",
+            "full_name": profile.full_name,
+            "email": user.email,
+            "phone": profile.phone,
+            "date_of_birth": profile.date_of_birth,
+            "gender": profile.gender,
+            "address": profile.address,
+            "profile_photo": profile.profile_photo.url if profile.profile_photo else None,
+            "employee_id": employee_id,
+            "designation": profile.designation,
+            "joining_date": profile.joining_date,
+            "hod_since": profile.hod_since,
+            "academic_status": "ACTIVE" if profile.is_active else "INACTIVE",
+            "qualifications": profile.qualifications,
+            "specialization": profile.specialization,
+            "experience": profile.experience,
+            "research_interests": profile.research_interests or [],
+            "department": {
+                "id": profile.department.id,
+                "name": profile.department.name,
+                "code": profile.department.code,
+                "vision": getattr(profile.department, "vision", "To be a center of excellence."), # Vision might need to be added to Department
+            },
+            "department_stats": {
+                "total_faculty": total_faculty,
+                "total_students": total_students,
+                "active_courses": active_courses,
+                "research_projects": research_projects,
+            },
+            "publications": publications,
+        }
 
 
 class StudentProfileServiceTime:

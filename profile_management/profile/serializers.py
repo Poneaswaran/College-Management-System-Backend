@@ -41,10 +41,27 @@ class StudentProfileSerializer(serializers.ModelSerializer):
             "profile_completed",
             "current_gpa",
             "updated_at",
-            "department_name",
+            "departmentName",
+            "fullName",
+            "email",
+            "courseName",
+            "sectionName",
+            "registerNumber",
+            "rollNumber",
+            "profilePhoto",
         ]
 
-    department_name = serializers.CharField(source="department.name", read_only=True)
+    def get_fullName(self, obj):
+        return f"{obj.first_name} {obj.last_name or ''}".strip()
+
+    fullName = serializers.SerializerMethodField()
+    email = serializers.EmailField(source="user.email", read_only=True)
+    departmentName = serializers.CharField(source="department.name", read_only=True)
+    courseName = serializers.CharField(source="course.name", read_only=True)
+    sectionName = serializers.CharField(source="section.name", read_only=True)
+    registerNumber = serializers.CharField(source="register_number", read_only=True)
+    rollNumber = serializers.CharField(source="roll_number", read_only=True)
+    profilePhoto = serializers.ImageField(source="profile_photo", read_only=True)
 
 
 class StudentProfileUpdateSerializer(serializers.Serializer):
@@ -78,6 +95,8 @@ class StudentAdminUpdateSerializer(serializers.Serializer):
 
 class FacultyProfileSerializer(serializers.ModelSerializer):
     full_name = serializers.CharField(read_only=True)
+    email = serializers.EmailField(source="user.email", read_only=True)
+    department_name = serializers.CharField(source="department.name", read_only=True)
 
     class Meta:
         model = FacultyProfile
@@ -87,24 +106,41 @@ class FacultyProfileSerializer(serializers.ModelSerializer):
             "first_name",
             "last_name",
             "full_name",
+            "email",
+            "phone",
+            "address",
+            "date_of_birth",
+            "gender",
             "department",
+            "department_name",
             "designation",
             "qualifications",
             "specialization",
             "joining_date",
             "office_hours",
             "teaching_load",
+            "profile_photo",
+            "research_interests",
+            "experience",
             "is_active",
             "updated_at",
         ]
 
 
 class FacultyProfileUpdateSerializer(serializers.Serializer):
+    first_name = serializers.CharField(required=False)
+    last_name = serializers.CharField(required=False)
+    phone = serializers.CharField(required=False)
+    address = serializers.CharField(required=False)
+    date_of_birth = serializers.DateField(required=False)
+    gender = serializers.CharField(required=False)
     designation = serializers.CharField(required=False)
     qualifications = serializers.CharField(required=False)
     specialization = serializers.CharField(required=False)
     office_hours = serializers.CharField(required=False)
     teaching_load = serializers.IntegerField(required=False)
+    research_interests = serializers.ListField(child=serializers.CharField(), required=False)
+    experience = serializers.CharField(required=False)
     department_id = serializers.IntegerField(required=False)
     is_active = serializers.BooleanField(required=False)
     user_id = serializers.IntegerField(required=False)
@@ -152,3 +188,52 @@ class ParentOtpVerifySerializer(serializers.Serializer):
     otp = serializers.CharField(required=True)
     relationship = serializers.CharField(required=False, allow_blank=True)
     phone_number = serializers.CharField(required=False, allow_blank=True)
+
+
+class PublicationSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    title = serializers.CharField()
+    journal = serializers.CharField()
+    year = serializers.IntegerField()
+    type = serializers.CharField()
+    doi = serializers.CharField(allow_null=True)
+
+
+class DepartmentStatsSerializer(serializers.Serializer):
+    totalFaculty = serializers.IntegerField(source="total_faculty")
+    totalStudents = serializers.IntegerField(source="total_students")
+    activeCourses = serializers.IntegerField(source="active_courses")
+    researchProjects = serializers.IntegerField(source="research_projects")
+
+
+class HODProfileSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    firstName = serializers.CharField(source="first_name")
+    lastName = serializers.CharField(source="last_name")
+    fullName = serializers.CharField(source="full_name")
+    email = serializers.EmailField()
+    phone = serializers.CharField(allow_null=True)
+    dateOfBirth = serializers.DateField(source="date_of_birth", allow_null=True)
+    gender = serializers.CharField(allow_null=True)
+    address = serializers.CharField(allow_null=True)
+    profilePhoto = serializers.CharField(source="profile_photo", allow_null=True)
+    employeeId = serializers.CharField(source="employee_id")
+    designation = serializers.CharField()
+    joiningDate = serializers.DateField(source="joining_date")
+    hodSince = serializers.DateField(source="hod_since", allow_null=True)
+    academicStatus = serializers.CharField(source="academic_status")
+    qualifications = serializers.CharField()
+    specialization = serializers.CharField()
+    experience = serializers.CharField(allow_null=True)
+    researchInterests = serializers.ListField(child=serializers.CharField(), source="research_interests")
+    department = serializers.DictField()
+    departmentStats = DepartmentStatsSerializer(source="department_stats")
+    publications = PublicationSerializer(many=True)
+
+
+class HODProfileUpdateSerializer(serializers.Serializer):
+    firstName = serializers.CharField(required=False, source="first_name")
+    lastName = serializers.CharField(required=False, source="last_name")
+    phone = serializers.CharField(required=False)
+    address = serializers.CharField(required=False)
+    researchInterests = serializers.ListField(child=serializers.CharField(), required=False, source="research_interests")

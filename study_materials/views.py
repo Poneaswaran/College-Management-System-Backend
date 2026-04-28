@@ -12,6 +12,9 @@ from study_materials.utils import (
     record_material_view,
 )
 from study_materials.validators import StudyMaterialValidator
+from configuration.services.feature_flag_service import FeatureFlagService
+from timetable.models import SectionSubjectRequirement
+from profile_management.models import Semester
 
 from .models import StudyMaterial
 from .serializers import (
@@ -314,3 +317,49 @@ class StudyMaterialRecordViewView(APIView):
             },
             status=status.HTTP_200_OK,
         )
+
+
+class FacultySubjectsSectionsView(APIView):
+    """
+    Returns the subjects and sections assigned to the faculty for the current semester.
+    Used for populating dropdowns in the study material upload modal.
+    """
+    from core.auth import JWTAuthentication
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        if not FeatureFlagService.is_enabled("study_materials"):
+            return Response({"error": "Study materials feature is disabled"}, status=status.HTTP_403_FORBIDDEN)
+            
+        role_code = getattr(getattr(request.user, "role", None), "code", "")
+        if role_code not in {"FACULTY", "HOD", "ADMIN"}:
+            raise PermissionDenied("Only faculty, HOD, or admin can access these options")
+
+        # Get current semester
+        current_semester = Semester.objects.filter(is_current=True).first()
+        
+        # Get requirements for this faculty
+        requirements = SectionSubjectRequirement.objects.filter(
+            faculty=request.user
+        )
+        
+        if current_semester:
+            requirements = requirements.filter(semester=current_semester)
+            
+        requirements = requirements.select_related('subject', 'section')
+
+        results = []
+        for req in requirements:
+            results.append({
+                "subject_id": req.subject.id,
+                "subject_name": req.subject.name,
+                "subject_code": req.subject.code,
+                "section_id": req.section.id,
+                "section_name": req.section.name,
+            })
+
+        return Response({
+            "count": len(results),
+            "results": results
+        })

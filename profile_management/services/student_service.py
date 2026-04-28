@@ -11,6 +11,7 @@ from configuration.services.config_service import ConfigService, FeatureFlagServ
 from core.models import Section
 from profile_management.models import Semester, StudentProfile
 from timetable.models import TimetableEntry
+from grades.models import CourseGrade, SemesterGPA, StudentCGPA
 
 from .tenant_service import TenantService
 
@@ -57,7 +58,7 @@ class StudentProfileService:
         return StudentProfileService.base_queryset(user=user).filter(register_number=register_number).first()
 
     @staticmethod
-    def list_profiles(user=None, department_id=None, course_id=None, year=None, academic_status=None, school_id=None):
+    def list_profiles(user=None, department_id=None, course_id=None, year=None, academic_status=None, school_id=None, search=None):
         qs = StudentProfileService.base_queryset(user=user)
 
         if school_id:
@@ -70,6 +71,14 @@ class StudentProfileService:
             qs = qs.filter(year=year)
         if academic_status:
             qs = qs.filter(academic_status=academic_status)
+        if search:
+            qs = qs.filter(
+                Q(first_name__icontains=search) |
+                Q(last_name__icontains=search) |
+                Q(register_number__icontains=search) |
+                Q(roll_number__icontains=search) |
+                Q(user__email__icontains=search)
+            )
 
         return qs
 
@@ -566,3 +575,68 @@ class StudentProfileService:
             return f"{days} day{'s' if days != 1 else ''} ago"
         weeks = int(seconds / 604800)
         return f"{weeks} week{'s' if weeks != 1 else ''} ago"
+    @staticmethod
+    def get_hod_student_performance(user, department_id=None, course_id=None, year=None, section_id=None):
+        """
+        Get aggregated performance data for students in the HOD's department.
+        """
+        qs = StudentProfileService.list_profiles(
+            user=user,
+            department_id=department_id,
+            course_id=course_id,
+            year=year
+        )
+        if section_id:
+            qs = qs.filter(section_id=section_id)
+
+        current_semester = Semester.objects.filter(is_current=True).first()
+        
+        performance_data = []
+        # Optimization: prefetch related performance data
+        qs = qs.select_related('section', 'course').prefetch_related(
+            'cgpa_record', 'semester_gpas', 'course_grades'
+        )
+
+        for student in qs:
+            # CGPA
+            cgpa = float(student.cgpa_record.cgpa) if hasattr(student, 'cgpa_record') else 0.0
+            
+            # Attendance (Overall for current semester)
+            # This is a bit heavy, in production we might use a denormalized field or better aggregation
+            attendance_qs = StudentAttendance.objects.filter(
+                student=student,
+                session__status='CLOSED'
+            )
+            if current_semester:
+                attendance_qs = attendance_qs.filter(
+                    Q(session__timetable_entry__semester=current_semester) |
+                    Q(session__combined_session__semester=current_semester)
+                )
+            
+            total_sessions = attendance_qs.count()
+            attended_sessions = attendance_qs.filter(status='PRESENT').count()
+            attendance_pct = (attended_sessions / total_sessions * 100) if total_sessions > 0 else 0.0
+            
+            # Arrears
+            arrears_count = student.course_grades.filter(grade='F').count()
+            
+            # SGPA (Last Semester)
+            last_gpa = 0.0
+            last_sem_gpa = student.semester_gpas.order_by('-semester__end_date').first()
+            if last_sem_gpa:
+                last_gpa = float(last_sem_gpa.gpa)
+
+            performance_data.append({
+                "id": student.id,
+                "name": student.full_name,
+                "register_number": student.register_number,
+                "year": student.year,
+                "section": student.section.name if student.section else "N/A",
+                "course": student.course.code if student.course else "N/A",
+                "cgpa": round(cgpa, 2),
+                "attendance_percentage": round(attendance_pct, 1),
+                "arrears_count": arrears_count,
+                "last_semester_gpa": round(last_gpa, 2)
+            })
+            
+        return performance_data

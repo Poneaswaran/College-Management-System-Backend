@@ -20,6 +20,9 @@ from .views import (
     BulkIDCardPDFView,
     IDCardTemplateView,
     IDCardTemplateResetView,
+    HODProfileView,
+    HODStudentListView,
+    HODStudentPerformanceView,
 )
 
 urlpatterns = [
@@ -57,6 +60,9 @@ urlpatterns = [
     path("faculty/dashboard/", FacultyDashboardView.as_view(), name="profile-faculty-dashboard"),
     path("faculty/courses/", FacultyCoursesView.as_view(), name="profile-faculty-courses"),
     path("faculty/students/", FacultyStudentsView.as_view(), name="profile-faculty-students"),
+    path("hod/profile/", HODProfileView.as_view(), name="profile-hod-me"),
+    path("hod/students/", HODStudentListView.as_view(), name="profile-hod-students"),
+    path("hod/student-performance/", HODStudentPerformanceView.as_view(), name="profile-hod-student-performance"),
     path("hod/faculty-list/", HODFacultyListView.as_view(), name="profile-hod-faculty-list"),
     path("parents/request-otp/", ParentRequestOtpView.as_view(), name="profile-parent-request-otp"),
     path("parents/verify-otp/", ParentVerifyOtpView.as_view(), name="profile-parent-verify-otp"),

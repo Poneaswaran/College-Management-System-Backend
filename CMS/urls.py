@@ -196,6 +196,7 @@ urlpatterns = [
     path('api/core/', include('core.urls')),
     path('api/tenant/', include('tenants.urls')),
     path('api/config/', include('configuration.urls')),
+    path('api/grievances/', include('grievances.urls')),
 ]
 
 # Serve media files in development

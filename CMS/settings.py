@@ -93,6 +93,7 @@ TENANT_APPS = [
     "onboarding",
     "campus_management",
     "leave_management",
+    "grievances",
     "rest_framework",
     "strawberry.django",
 ]

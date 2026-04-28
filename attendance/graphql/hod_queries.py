@@ -166,16 +166,20 @@ class HODAttendanceQuery:
             # Get student's reports
             student_reports = reports_qs.filter(student=student)
             
-            if not student_reports.exists():
-                continue
-            
             # Calculate aggregates
-            total_classes = sum(r.total_classes for r in student_reports)
-            attended = sum(r.present_count + r.late_count for r in student_reports)
-            absent = sum(r.absent_count for r in student_reports)
-            late = sum(r.late_count for r in student_reports)
+            if student_reports.exists():
+                total_classes = sum(r.total_classes for r in student_reports)
+                attended = sum(r.present_count + r.late_count for r in student_reports)
+                absent = sum(r.absent_count for r in student_reports)
+                late = sum(r.late_count for r in student_reports)
+                percentage = round((attended / total_classes * 100), 1) if total_classes > 0 else 0.0
+            else:
+                total_classes = 0
+                attended = 0
+                absent = 0
+                late = 0
+                percentage = 0.0
             
-            percentage = round((attended / total_classes * 100), 1) if total_classes > 0 else 0.0
             risk_level = get_risk_level(percentage)
             
             # Get last absent date
@@ -313,21 +317,23 @@ class HODAttendanceQuery:
             )
         ]
         
-        # Get available periods
+        # Get available periods (deduplicated by period_number)
         from timetable.models import PeriodDefinition
         periods = PeriodDefinition.objects.filter(
             timetable_entries__section__course__department=department
         ).distinct().order_by('period_number')
         
-        available_periods = [
-            PeriodSlot(
-                period_number=p.period_number,
-                start_time=p.start_time.strftime('%H:%M'),
-                end_time=p.end_time.strftime('%H:%M'),
-                label=f"Period {p.period_number} ({p.start_time.strftime('%H:%M')}–{p.end_time.strftime('%H:%M')})"
-            )
-            for p in periods
-        ]
+        seen_periods = set()
+        available_periods = []
+        for p in periods:
+            if p.period_number not in seen_periods:
+                available_periods.append(PeriodSlot(
+                    period_number=p.period_number,
+                    start_time=p.start_time.strftime('%H:%M'),
+                    end_time=p.end_time.strftime('%H:%M'),
+                    label=f"Period {p.period_number} ({p.start_time.strftime('%H:%M')}–{p.end_time.strftime('%H:%M')})"
+                ))
+                seen_periods.add(p.period_number)
         
         # Get available semesters
         semesters = Semester.objects.all().order_by('-start_date')

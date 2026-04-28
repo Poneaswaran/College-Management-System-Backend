@@ -607,10 +607,10 @@ class HODCourseSerializer(serializers.ModelSerializer):
             'schedule', 'room', 'status'
         ]
 
-    def get_semester_label(self, obj) -> str:
+    def get_semesterLabel(self, obj) -> str:
         return f"Semester {obj.semester.number} — {obj.semester.academic_year.year_code}"
 
-    def get_faculty_name(self, obj) -> str:
+    def get_facultyName(self, obj) -> str:
         return obj.faculty.get_full_name() if obj.faculty else "Not Assigned"
 
     def get_studentsCount(self, obj) -> int:
@@ -645,12 +645,19 @@ class HODCourseSerializer(serializers.ModelSerializer):
 
     def get_classesCompleted(self, obj) -> int:
         from attendance.models import AttendanceSession
+        from django.db.models import Q
         return AttendanceSession.objects.filter(
-            timetable_entry__subject=obj.subject,
-            timetable_entry__section=obj.section,
-            semester=obj.semester,
+            Q(
+                timetable_entry__subject=obj.subject,
+                timetable_entry__section=obj.section,
+                timetable_entry__semester=obj.semester
+            ) | Q(
+                combined_session__subject=obj.subject,
+                combined_session__sections=obj.section,
+                combined_session__semester=obj.semester
+            ),
             status='CLOSED'
-        ).count()
+        ).distinct().count()
 
     def get_classesTotal(self, obj) -> int:
         # Mock calculation: periods per week * 15 weeks
@@ -713,7 +720,7 @@ class HODCourseSerializer(serializers.ModelSerializer):
         return "TBD"
 
     def get_status(self, obj) -> str:
-        if obj.semester.is_active:
+        if obj.semester.is_current:
             return 'ACTIVE'
         # Logic for COMPLETED/UPCOMING based on dates
         import datetime
