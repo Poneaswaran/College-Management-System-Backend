@@ -8,6 +8,22 @@ from django.utils import timezone
 from django.core.exceptions import ObjectDoesNotExist
 
 
+class BaseModel(models.Model):
+    tenant = models.ForeignKey(
+        "tenants.Client",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="%(class)s_records",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        abstract = True
+
+
 # ==================================================
 # ACADEMIC STRUCTURE
 # ==================================================

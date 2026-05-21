@@ -24,6 +24,13 @@ class NotificationType(models.TextChoices):
     # Grades
     GRADE_PUBLISHED = "GRADE_PUBLISHED", "Grade Published"
     RESULT_DECLARED = "RESULT_DECLARED", "Result Declared"
+
+    # Placements
+    PLACEMENT_APPLICATION_CONFIRMED = "PLACEMENT_APPLICATION_CONFIRMED", "Placement Application Confirmed"
+    PLACEMENT_APPLICATION_SHORTLISTED = "PLACEMENT_APPLICATION_SHORTLISTED", "Placement Application Shortlisted"
+    PLACEMENT_APPLICATION_SELECTED = "PLACEMENT_APPLICATION_SELECTED", "Placement Application Selected"
+    PLACEMENT_APPLICATION_REJECTED = "PLACEMENT_APPLICATION_REJECTED", "Placement Application Rejected"
+    PLACEMENT_OFFER_UPLOADED = "PLACEMENT_OFFER_UPLOADED", "Placement Offer Uploaded"
     
     # System
     ANNOUNCEMENT = "ANNOUNCEMENT", "Announcement"
@@ -47,6 +54,7 @@ class NotificationCategory(models.TextChoices):
     ATTENDANCE = "ATTENDANCE", "Attendance"
     ASSIGNMENT = "ASSIGNMENT", "Assignment"
     GRADE = "GRADE", "Grade"
+    PLACEMENT = "PLACEMENT", "Placement"
     SYSTEM = "SYSTEM", "System"
 
 
@@ -66,6 +74,12 @@ NOTIFICATION_TYPE_TO_CATEGORY = {
     
     NotificationType.GRADE_PUBLISHED: NotificationCategory.GRADE,
     NotificationType.RESULT_DECLARED: NotificationCategory.GRADE,
+
+    NotificationType.PLACEMENT_APPLICATION_CONFIRMED: NotificationCategory.PLACEMENT,
+    NotificationType.PLACEMENT_APPLICATION_SHORTLISTED: NotificationCategory.PLACEMENT,
+    NotificationType.PLACEMENT_APPLICATION_SELECTED: NotificationCategory.PLACEMENT,
+    NotificationType.PLACEMENT_APPLICATION_REJECTED: NotificationCategory.PLACEMENT,
+    NotificationType.PLACEMENT_OFFER_UPLOADED: NotificationCategory.PLACEMENT,
     
     NotificationType.ANNOUNCEMENT: NotificationCategory.SYSTEM,
     NotificationType.FEE_REMINDER: NotificationCategory.SYSTEM,
@@ -90,6 +104,12 @@ NOTIFICATION_TYPE_DEFAULT_PRIORITY = {
     
     NotificationType.GRADE_PUBLISHED: NotificationPriority.HIGH,
     NotificationType.RESULT_DECLARED: NotificationPriority.HIGH,
+
+    NotificationType.PLACEMENT_APPLICATION_CONFIRMED: NotificationPriority.MEDIUM,
+    NotificationType.PLACEMENT_APPLICATION_SHORTLISTED: NotificationPriority.HIGH,
+    NotificationType.PLACEMENT_APPLICATION_SELECTED: NotificationPriority.HIGH,
+    NotificationType.PLACEMENT_APPLICATION_REJECTED: NotificationPriority.MEDIUM,
+    NotificationType.PLACEMENT_OFFER_UPLOADED: NotificationPriority.HIGH,
     
     NotificationType.ANNOUNCEMENT: NotificationPriority.MEDIUM,
     NotificationType.FEE_REMINDER: NotificationPriority.HIGH,
