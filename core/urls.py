@@ -4,10 +4,11 @@ from .views import (
     AdminDepartmentCreateView, AdminCourseCreateView, AdminSectionCreateView, AdminAcademicYearCreateView, AdminSemesterCreateView,
     DepartmentListView, CourseListView, AcademicYearListView, SemesterListView, SchoolListView,
     AdminDepartmentDetailView, AdminCourseDetailView, AdminSectionDetailView,
-    AcademicFiltersAPIView,
+    AcademicFiltersAPIView, LoginAPIView,
 )
 
 urlpatterns = [
+    path('auth/login/', LoginAPIView.as_view(), name='login'),
     path('roles/permissions/assign/', AssignPermissionAPIView.as_view(), name='assign-role-permissions'),
     path('filters/', FilterOptionsAPIView.as_view(), name='core-filters'),
     path('sections/', SectionListView.as_view(), name='academic-section-list'),

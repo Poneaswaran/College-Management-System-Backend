@@ -11,6 +11,7 @@ from .types import UserType
 from core.models import TokenBlacklist
 from .auth import require_auth
 from core.models import TokenBlacklist, Role, Department
+from core.services import AuthService
 
 User = get_user_model()
 
@@ -74,49 +75,18 @@ class Mutation:
         Login using email OR register number
         Returns user data with JWT tokens
         """
-        # Find user manually
-        user = User.objects.select_related("role", "department").filter(
-            Q(email__iexact=data.username) |
-            Q(register_number__iexact=data.username)
-        ).first()
-
-        if not user:
-            raise Exception("Invalid credentials")
-
-        if not user.check_password(data.password):
-            raise Exception("Invalid credentials")
-
-        if not user.is_active:
-            raise Exception("User account is inactive")
-
-        # Generate JWT tokens
-        access_payload = {
-            'user_id': user.id,
-            'email': user.email,
-            'register_number': user.register_number,
-            'role': user.role.code,
-            'department_id': user.department.id if user.department else None,
-            'exp': datetime.utcnow() + timedelta(hours=24),  # 24 hours
-            'iat': datetime.utcnow(),
-            'type': 'access'
-        }
-        
-        refresh_payload = {
-            'user_id': user.id,
-            'exp': datetime.utcnow() + timedelta(days=7),  # 7 days
-            'iat': datetime.utcnow(),
-            'type': 'refresh'
-        }
-
-        access_token = jwt.encode(access_payload, settings.SECRET_KEY, algorithm='HS256')
-        refresh_token = jwt.encode(refresh_payload, settings.SECRET_KEY, algorithm='HS256')
-
-        return LoginResponse(
-            user=user,
-            access_token=access_token,
-            refresh_token=refresh_token,
-            message=f"Login successful. Welcome {user.email or user.register_number}!"
-        )
+        from django.core.exceptions import ValidationError
+        try:
+            auth_data = AuthService.login(username=data.username, password=data.password)
+            return LoginResponse(
+                user=auth_data['user'],
+                access_token=auth_data['access_token'],
+                refresh_token=auth_data['refresh_token'],
+                message=auth_data['message']
+            )
+        except ValidationError as e:
+            message = e.message if hasattr(e, 'message') else str(e)
+            raise Exception(message)
 
     @strawberry.mutation
     def refresh_token(self, refresh_token: str) -> LoginResponse:

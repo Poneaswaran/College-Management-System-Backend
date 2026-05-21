@@ -1,9 +1,11 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
+from django.core.exceptions import ValidationError
 from datetime import datetime
-from core.services import RolePermissionService, CoreFilterService, AcademicStructureService
+from core.services import RolePermissionService, CoreFilterService, AcademicStructureService, AuthService
+from core.serializers import LoginSerializer
 
 class AssignPermissionAPIView(APIView):
     # Depending on auth setup, IsAuthenticated might be required.
@@ -720,3 +722,47 @@ class AdminSectionDetailView(APIView):
 
         result = AcademicStructureService.delete_section(pk)
         return Response(result if result['success'] else result, status=status.HTTP_200_OK if result['success'] else status.HTTP_404_NOT_FOUND)
+
+
+class LoginAPIView(APIView):
+    """
+    API View to authenticate users via username (email or register number) and password.
+    Exposes POST /api/core/auth/login/
+    """
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        """
+        Handle user login request.
+        """
+        serializer = LoginSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            
+        username = serializer.validated_data['username']
+        password = serializer.validated_data['password']
+        
+        try:
+            auth_data = AuthService.login(username=username, password=password)
+            user = auth_data['user']
+            
+            response_data = {
+                'user': {
+                    'id': user.id,
+                    'email': user.email,
+                    'register_number': user.register_number,
+                    'role': user.role.code if user.role else None,
+                    'department': user.department.code if user.department else None,
+                },
+                'access_token': auth_data['access_token'],
+                'refresh_token': auth_data['refresh_token'],
+                'message': auth_data['message']
+            }
+            return Response(response_data, status=status.HTTP_200_OK)
+            
+        except ValidationError as e:
+            message = e.message if hasattr(e, 'message') else str(e)
+            if message == "Invalid credentials":
+                return Response({'error': message}, status=status.HTTP_401_UNAUTHORIZED)
+            return Response({'error': message}, status=status.HTTP_400_BAD_REQUEST)
+

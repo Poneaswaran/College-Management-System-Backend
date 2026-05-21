@@ -27,6 +27,37 @@ from .serializers import (
 )
 
 
+
+def resolve_register_number(request, register_number):
+    role_code = getattr(getattr(request.user, "role", None), "code", None)
+
+    if register_number == "me":
+        if role_code == "STUDENT":
+            student_profile = getattr(request.user, "student_profile", None)
+            if not student_profile:
+                return None, "Student profile not found"
+            return student_profile.register_number, None
+        elif role_code == "PARENT":
+            parent_profile = getattr(request.user, "parent_profile", None)
+            if not parent_profile or not parent_profile.student:
+                return None, "Parent profile or associated student not found"
+            return parent_profile.student.register_number, None
+        else:
+            return None, "Only students and parents can use the 'me' keyword"
+
+    # If a specific register number is requested, enforce authorization
+    if role_code == "STUDENT":
+        student_profile = getattr(request.user, "student_profile", None)
+        if not student_profile or student_profile.register_number != register_number:
+            return None, "Not authorized to view other student profiles"
+    elif role_code == "PARENT":
+        parent_profile = getattr(request.user, "parent_profile", None)
+        if not parent_profile or not parent_profile.student or parent_profile.student.register_number != register_number:
+            return None, "Not authorized to view profiles of other students"
+
+    return register_number, None
+
+
 class HODProfileView(ETagMixin, APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [permissions.IsAuthenticated]
@@ -66,12 +97,22 @@ class StudentProfileDetailView(ETagMixin, APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request, register_number):
+        register_number, err = resolve_register_number(request, register_number)
+        if err:
+            status_code = status.HTTP_403_FORBIDDEN if "authorized" in err or "Only" in err else status.HTTP_404_NOT_FOUND
+            return Response({"detail": err}, status=status_code)
+
         profile = StudentProfileService.get_profile(register_number=register_number, user=request.user)
         if not profile:
             return Response({"detail": "Student profile not found"}, status=status.HTTP_404_NOT_FOUND)
         return Response(StudentProfileSerializer(profile).data)
 
     def patch(self, request, register_number):
+        register_number, err = resolve_register_number(request, register_number)
+        if err:
+            status_code = status.HTTP_403_FORBIDDEN if "authorized" in err or "Only" in err else status.HTTP_404_NOT_FOUND
+            return Response({"detail": err}, status=status_code)
+
         serializer = StudentProfileUpdateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
@@ -90,6 +131,11 @@ class StudentProfilePhotoUpdateView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def patch(self, request, register_number):
+        register_number, err = resolve_register_number(request, register_number)
+        if err:
+            status_code = status.HTTP_403_FORBIDDEN if "authorized" in err or "Only" in err else status.HTTP_404_NOT_FOUND
+            return Response({"detail": err}, status=status_code)
+
         serializer = StudentProfilePhotoUpdateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
@@ -162,6 +208,10 @@ class StudentDashboardView(ETagMixin, APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request, register_number):
+        register_number, err = resolve_register_number(request, register_number)
+        if err:
+            status_code = status.HTTP_403_FORBIDDEN if "authorized" in err or "Only" in err else status.HTTP_404_NOT_FOUND
+            return Response({"detail": err}, status=status_code)
         try:
             payload = StudentProfileService.get_student_dashboard(register_number=register_number, user=request.user)
         except Exception as exc:
@@ -174,6 +224,10 @@ class StudentCoursesView(ETagMixin, APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request, register_number):
+        register_number, err = resolve_register_number(request, register_number)
+        if err:
+            status_code = status.HTTP_403_FORBIDDEN if "authorized" in err or "Only" in err else status.HTTP_404_NOT_FOUND
+            return Response({"detail": err}, status=status_code)
         try:
             payload = StudentProfileService.my_courses(register_number=register_number, user=request.user)
         except Exception as exc:
@@ -186,6 +240,10 @@ class StudentCourseOverviewView(ETagMixin, APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request, register_number):
+        register_number, err = resolve_register_number(request, register_number)
+        if err:
+            status_code = status.HTTP_403_FORBIDDEN if "authorized" in err or "Only" in err else status.HTTP_404_NOT_FOUND
+            return Response({"detail": err}, status=status_code)
         try:
             payload = StudentProfileService.course_overview(register_number=register_number, user=request.user)
         except Exception as exc:

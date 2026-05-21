@@ -1,5 +1,10 @@
 from typing import List, Dict, Union
+from datetime import timedelta
+import jwt
+from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
+from django.db.models import Q
+from django.utils import timezone
 from core.models import Role, Permission, RolePermission, Department, Course, Section, User, School
 from timetable.models import PeriodDefinition, Subject
 from profile_management.models import AcademicYear, Semester
@@ -430,3 +435,66 @@ class CoreFilterService:
                 } for p in periods
             ]
         }
+
+
+class AuthService:
+    """Service class for handling authentication and session management."""
+
+    @staticmethod
+    def login(username: str, password: str) -> dict:
+        """
+        Authenticate user using email or register number.
+        Returns user instance, access token, and refresh token.
+        """
+        user = User.objects.select_related("role", "department").filter(
+            Q(email__iexact=username) |
+            Q(register_number__iexact=username)
+        ).first()
+
+        if not user:
+            raise ValidationError("Invalid credentials")
+
+        if not user.check_password(password):
+            raise ValidationError("Invalid credentials")
+
+        if not user.is_active:
+            raise ValidationError("User account is inactive")
+
+        # Generate JWT tokens using timezone-aware datetimes (UTC)
+        now = timezone.now()
+        
+        access_lifetime = getattr(settings, 'JWT_ACCESS_TOKEN_LIFETIME', 86400)
+        refresh_lifetime = getattr(settings, 'JWT_REFRESH_TOKEN_LIFETIME', 604800)
+
+        access_payload = {
+            'user_id': user.id,
+            'email': user.email,
+            'register_number': user.register_number,
+            'role': user.role.code,
+            'department_id': user.department.id if user.department else None,
+            'exp': now + timedelta(seconds=access_lifetime),
+            'iat': now,
+            'type': 'access'
+        }
+        
+        refresh_payload = {
+            'user_id': user.id,
+            'exp': now + timedelta(seconds=refresh_lifetime),
+            'iat': now,
+            'type': 'refresh'
+        }
+
+        # Use settings.SECRET_KEY and settings.JWT_ALGORITHM (default to HS256)
+        secret_key = settings.SECRET_KEY
+        algorithm = getattr(settings, 'JWT_ALGORITHM', 'HS256')
+
+        access_token = jwt.encode(access_payload, secret_key, algorithm=algorithm)
+        refresh_token = jwt.encode(refresh_payload, secret_key, algorithm=algorithm)
+
+        return {
+            'user': user,
+            'access_token': access_token,
+            'refresh_token': refresh_token,
+            'message': f"Login successful. Welcome {user.email or user.register_number}!"
+        }
+

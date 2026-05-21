@@ -240,6 +240,7 @@ CORS_ALLOWED_ORIGINS = [
     "http://192.168.3.47:3000",
     "http://192.168.1.10:3000",
     "http://192.168.1.6:3000",
+    "http://localhost:50166"
 ]
 
 # Allow any subdomain of localhost on common frontend ports (3000, 5173, 5174)
@@ -247,6 +248,7 @@ CORS_ALLOWED_ORIGIN_REGEXES = [
     r"^http://.*\.localhost:3000$",
     r"^http://.*\.localhost:5173$",
     r"^http://.*\.localhost:5174$",
+    "http://localhost:50166"
 ]
 
 CSRF_TRUSTED_ORIGINS = [
