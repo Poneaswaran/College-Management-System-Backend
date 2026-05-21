@@ -1,0 +1,1 @@
+"""Placement notifications sub-module."""
