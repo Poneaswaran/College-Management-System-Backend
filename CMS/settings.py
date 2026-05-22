@@ -94,6 +94,7 @@ TENANT_APPS = [
     "campus_management",
     "leave_management",
     "grievances",
+    "placement",
     "rest_framework",
     "strawberry.django",
 ]
@@ -240,7 +241,8 @@ CORS_ALLOWED_ORIGINS = [
     "http://192.168.3.47:3000",
     "http://192.168.1.10:3000",
     "http://192.168.1.6:3000",
-    "http://localhost:50166"
+    "http://localhost:50166",
+    "http://192.168.1.6:8001"
 ]
 
 # Allow any subdomain of localhost on common frontend ports (3000, 5173, 5174)

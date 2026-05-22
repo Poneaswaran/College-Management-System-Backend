@@ -128,8 +128,8 @@ class Migration(migrations.Migration):
             options={
                 "ordering": ["-drive_date"],
                 "indexes": [
-                    models.Index(fields=["status", "drive_type"], name="placement_drive_status_type_idx"),
-                    models.Index(fields=["eligible_batch_year", "min_cgpa"], name="placement_drive_batch_cgpa_idx"),
+                    models.Index(fields=["status", "drive_type"], name="place_drive_status_type_idx"),
+                    models.Index(fields=["eligible_batch_year", "min_cgpa"], name="place_drive_batch_cgpa_idx"),
                     models.Index(fields=["application_deadline"], name="placement_drive_deadline_idx"),
                 ],
             },
@@ -188,8 +188,8 @@ class Migration(migrations.Migration):
                 "ordering": ["-applied_at"],
                 "unique_together": {("student", "drive")},
                 "indexes": [
-                    models.Index(fields=["status", "drive"], name="placement_app_status_drive_idx"),
-                    models.Index(fields=["student", "status"], name="placement_app_student_status_idx"),
+                    models.Index(fields=["status", "drive"], name="place_app_status_drive_idx"),
+                    models.Index(fields=["student", "status"], name="place_app_stud_status_idx"),
                 ],
             },
         ),
